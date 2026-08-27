@@ -1,6 +1,6 @@
 [project]
 name = "capturekarma"
-version = "2.0.0a1"
+version = "2.0.0a2"
 description = "Record a product demo once, replay it with cinematic cursor and scroll motion, capture to MP4."
 readme = "README.md"
 license = { file = "LICENSE" }
