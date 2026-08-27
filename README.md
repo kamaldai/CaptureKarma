@@ -55,6 +55,15 @@ name, and so the video's filename stem); `ck record desktop` takes `--name NAME`
 Press **F9** or **Esc** during playback to abort. ffmpeg is still finalized cleanly and the footage recorded so
 far is kept as `<name>_<timestamp>.partial.mp4`.
 
+## GUI
+
+    uv run ck-gui [scenes-folder]
+
+Opens a window listing the scene files in that folder (default `~/Videos/CaptureKarma/scenes`), with
+**Record web** / **Record desktop** / **Play selected** / **Open output folder** buttons and a log panel.
+A *Show cursor* checkbox and a cursor-style dropdown override the selected scene for that run only.
+**F9** stops a recording or aborts playback, exactly as it does on the command line.
+
 ## Scene files
 
 A scene is one YAML file per demo. `target` says what to drive, `output` / `cursor` / `defaults` say how it
