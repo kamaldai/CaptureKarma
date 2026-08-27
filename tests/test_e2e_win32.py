@@ -1,13 +1,11 @@
 """Full pipeline on a real desktop: play the bundled web fixture scene and probe the MP4."""
-import json
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from capturekarma.player import Player, PlayOptions
 from capturekarma.scene import parse_scene
+from tests._video import video_stream_info
 
 pytestmark = [pytest.mark.win32, pytest.mark.integration]
 
@@ -30,14 +28,9 @@ def test_play_web_fixture_end_to_end(tmp_path: Path, fixture_url: str):
     })
     res = Player(scene, PlayOptions(out_dir=tmp_path)).run()
     assert res.video.exists() and res.partial is False and res.timeline.exists()
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        pytest.skip("ffprobe not on PATH; video produced but not probed")
-    info = json.loads(subprocess.run(
-        [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
-         "stream=r_frame_rate,width,height,pix_fmt:format=duration", "-of", "json", str(res.video)],
-        capture_output=True, text=True, check=True).stdout)
-    assert info["streams"][0]["r_frame_rate"] == "60/1"
-    assert info["streams"][0]["pix_fmt"] == "yuv420p"   # 4:2:0 so every player can decode it
-    assert abs(float(info["format"]["duration"]) - res.duration) <= 0.5
-    assert info["streams"][0]["width"] % 2 == 0 and info["streams"][0]["height"] % 2 == 0
+    info = video_stream_info(res.video)
+    assert info["tbr"] == 60
+    assert info["pix_fmt"] == "yuv420p"   # 4:2:0 so every player can decode it
+    assert info["width"] % 2 == 0 and info["height"] % 2 == 0
+    if info["duration"] is not None:      # only real ffprobe reports a precise container duration
+        assert abs(info["duration"] - res.duration) <= 0.5

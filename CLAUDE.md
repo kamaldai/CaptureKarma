@@ -31,9 +31,11 @@ Plan: `docs/superpowers/plans/2026-08-27-scripted-demo-recorder.md`.
 ## Gotchas
 
 - Call `set_dpi_awareness()` before creating any window or enumerating monitors, or coordinates will be logical px.
-- ddagrab frames are D3D11 hardware frames: `-vf hwdownload,format=bgra` must precede the encoder on that
-  branch for **both** NVENC and libx264, because an explicit `-pix_fmt` on hardware frames fails
-  ("Impossible to convert between the formats supported by ...") and silently falls back to gdigrab.
+- ddagrab frames are D3D11 hardware frames. NVENC consumes them directly and still emits `yuv420p`, so that
+  branch gets **no** `-vf hwdownload` and **no** `-pix_fmt` — an explicit `-pix_fmt` on hw frames fails
+  ("Impossible to convert between the formats supported by ...") and the capture silently falls back to
+  gdigrab. libx264 does need `-vf hwdownload,format=bgra` first; the two gdigrab branches take `-pix_fmt`
+  normally. Assert `cap.use_ddagrab` in real capture tests, or a fallback hides an ffmpeg-args regression.
 - ddagrab `output_idx` is assumed to equal `EnumDisplayMonitors` order (single GPU). `--gdigrab` is the escape hatch;
   rotated/portrait monitors fall back to gdigrab automatically because ddagrab cannot capture them.
 - Playwright's virtual mouse never moves the OS cursor; the overlay is the only cursor in web recordings.
