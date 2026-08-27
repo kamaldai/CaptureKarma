@@ -31,3 +31,14 @@ def test_log_appends(qapp, tmp_path: Path):
     w = MainWindow(scenes_dir=tmp_path)
     w.append_log("hello")
     assert "hello" in w.log_view.toPlainText()
+
+
+def test_refresh_keeps_selection_and_picks_up_new_scenes(qapp, tmp_path: Path):
+    (tmp_path / "a.yaml").write_text("version: 1\nname: a\ntarget: {kind: web, url: 'http://x'}\nsteps: []\n")
+    w = MainWindow(scenes_dir=tmp_path)
+    w.scene_list.setCurrentRow(0)
+    (tmp_path / "b.yaml").write_text("version: 1\nname: b\ntarget: {kind: web, url: 'http://x'}\nsteps: []\n")
+    w.refresh_scenes()
+    assert [w.scene_list.item(i).text() for i in range(w.scene_list.count())] == ["a.yaml", "b.yaml"]
+    assert w.scene_list.currentItem().text() == "a.yaml"
+    assert w.play_btn.isEnabled()

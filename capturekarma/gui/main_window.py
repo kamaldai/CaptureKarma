@@ -103,10 +103,17 @@ class MainWindow(QMainWindow):
 
     # ---- state ----
     def refresh_scenes(self) -> None:
+        item = self.scene_list.currentItem()
+        selected = item.text() if item else None
         self.scenes_label.setText(f"Scenes in {self.scenes_dir}")
         self.scene_list.clear()
         for p in sorted(self.scenes_dir.glob("*.y*ml")):
             self.scene_list.addItem(p.name)
+        if selected is not None:  # a refresh after a run must not silently drop the user's pick
+            for i in range(self.scene_list.count()):
+                if self.scene_list.item(i).text() == selected:
+                    self.scene_list.setCurrentRow(i)
+                    break
         self._update_buttons()
 
     def refresh_windows(self) -> None:
