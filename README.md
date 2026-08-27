@@ -61,8 +61,8 @@ far is kept as `<name>_<timestamp>.partial.mp4`.
 
 Opens a window listing the scene files in that folder (default `~/Videos/CaptureKarma/scenes`), with
 **Record web** / **Record desktop** / **Play selected** / **Open output folder** buttons and a log panel.
-A *Show cursor* checkbox and a cursor-style dropdown override the selected scene for that run only — the
-dropdown starts at *(scene default)*, so the scene's own `cursor.style` is kept unless you pick one.
+A *Hide cursor* checkbox and a cursor-style dropdown override the selected scene for that run only; both
+leave the scene's own settings alone unless you change them.
 **F9** stops a recording or aborts playback, exactly as it does on the command line.
 
 ## Scene files

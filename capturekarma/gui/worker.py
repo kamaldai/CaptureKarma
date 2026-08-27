@@ -30,11 +30,15 @@ class Worker(QThread):
     def run(self) -> None:
         handler = _QtLogHandler(self.log.emit)
         handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-        root = logging.getLogger("capturekarma")
-        root.addHandler(handler)
+        lib_logger = logging.getLogger("capturekarma")
+        if lib_logger.level == logging.NOTSET:
+            # Otherwise it inherits root's WARNING and the library's INFO progress lines never
+            # reach the handler, leaving the panel silent for a whole run.
+            lib_logger.setLevel(logging.INFO)
+        lib_logger.addHandler(handler)
         try:
             self.done.emit(self._fn())
         except Exception as exc:  # noqa: BLE001 - every failure must reach the UI log
             self.failed.emit(f"{type(exc).__name__}: {exc}")
         finally:
-            root.removeHandler(handler)
+            lib_logger.removeHandler(handler)

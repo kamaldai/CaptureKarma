@@ -1,6 +1,7 @@
 """Entry point for `ck-gui`: DPI awareness, a QApplication, one window."""
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from capturekarma._win import set_dpi_awareness
 
 def main() -> None:
     set_dpi_awareness()
+    logging.getLogger("capturekarma").setLevel(logging.INFO)  # so the log panel sees progress lines
     from PySide6.QtWidgets import QApplication
 
     from .main_window import MainWindow

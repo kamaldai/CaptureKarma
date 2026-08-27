@@ -82,13 +82,12 @@ class MainWindow(QMainWindow):
 
         opts = QGroupBox("Playback options (override the scene for this run)")
         opts_l = QHBoxLayout(opts)
-        self.show_cursor_cb = QCheckBox("Show cursor")
-        self.show_cursor_cb.setChecked(True)
+        self.hide_cursor_cb = QCheckBox("Hide cursor")
         self.style_combo = QComboBox()
         self.style_combo.addItems([SCENE_DEFAULT_STYLE, *available_styles()])
         self.open_btn = QPushButton("Open output folder")
         self.open_btn.clicked.connect(self._open_output)
-        opts_l.addWidget(self.show_cursor_cb)
+        opts_l.addWidget(self.hide_cursor_cb)
         opts_l.addWidget(QLabel("Cursor style"))
         opts_l.addWidget(self.style_combo)
         opts_l.addStretch(1)
@@ -133,6 +132,10 @@ class MainWindow(QMainWindow):
         style = self.style_combo.currentText()
         return None if style == SCENE_DEFAULT_STYLE else style
 
+    def _cursor_visible_option(self) -> bool | None:
+        """False to force the cursor off for this run, or None to leave the scene's `cursor.visible` alone."""
+        return False if self.hide_cursor_cb.isChecked() else None
+
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
@@ -173,7 +176,7 @@ class MainWindow(QMainWindow):
         path = self._selected_scene()
         if not path:
             return
-        visible = self.show_cursor_cb.isChecked()
+        visible = self._cursor_visible_option()
         style = self._selected_style()
         from capturekarma.recorder.hotkey import StopHotkey
 
