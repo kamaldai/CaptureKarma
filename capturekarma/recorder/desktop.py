@@ -42,18 +42,21 @@ class DesktopRecorder:
     def _t(self) -> float:
         return self._clock() - self._t0
 
+    def _inside(self, x: int, y: int) -> bool:
+        """True when a screen point falls in the recorded region (half-open box)."""
+        r = self.region
+        return r.x <= x < r.right and r.y <= y < r.bottom
+
     # ---- pure handlers (unit-tested) ----
     def on_click(self, x: int, y: int, button_name: str, pressed: bool) -> None:
-        if not pressed:
+        if not pressed or not self._inside(x, y):
             return
         r = self.region
-        if not (r.x <= x < r.right and r.y <= y < r.bottom):
-            return
         button = button_name if button_name in ("left", "right", "middle") else "left"
         self.events.append(RawEvent(t=self._t(), kind="click", at=(x - r.x, y - r.y), button=button))  # type: ignore[arg-type]
 
     def on_scroll(self, x: int, y: int, dx: int, dy: int) -> None:
-        if dy:
+        if dy and self._inside(x, y):
             self.events.append(RawEvent(t=self._t(), kind="scroll", delta=int(-dy * PX_PER_NOTCH)))
 
     def on_press(self, key_name: str | None, char: str | None) -> None:
@@ -68,6 +71,9 @@ class DesktopRecorder:
     def start(self) -> None:
         from pynput import keyboard, mouse
 
+        if self._mouse is not None or self._keys is not None:
+            log.debug("start() called while already recording; restarting listeners")
+            self.stop()
         self._t0 = self._clock()
 
         def _click(x, y, button, pressed):

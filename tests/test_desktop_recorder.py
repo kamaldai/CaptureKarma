@@ -38,6 +38,12 @@ def test_scroll_notches_to_pixels_down_positive():
     assert r.events[0].kind == "scroll" and r.events[0].delta == 200
 
 
+def test_scroll_outside_region_ignored():
+    r, c = _rec()
+    r.on_scroll(5, 5, 0, -2)
+    assert r.events == []
+
+
 def test_keys():
     r, c = _rec()
     r.on_press(None, "a"); r.on_press("enter", None); r.on_press("shift", None); r.on_press("f9", None)
@@ -53,3 +59,47 @@ def test_to_scene():
     assert s.target.kind == "desktop" and s.target.window == "Notepad" and s.target.region is None
     assert s.steps == (MoveStep(to=StepTarget(at=(50, 60))), ClickStep(), WaitStep(seconds=0.4), ScrollStep(by=300),
                        WaitStep(seconds=0.4), TypeStep(text="hi"))
+
+
+class FakeListener:
+    """Stand-in for pynput's Listener: records lifecycle calls, touches no real hooks."""
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.daemon = False
+        self.started = False
+        self.stopped = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_start_is_idempotent_and_stops_previous_listeners(monkeypatch):
+    from pynput import keyboard, mouse
+
+    made: dict[str, list[FakeListener]] = {"mouse": [], "keys": []}
+
+    def factory(bucket):
+        def make(**kwargs):
+            lst = FakeListener(**kwargs)
+            made[bucket].append(lst)
+            return lst
+        return make
+
+    monkeypatch.setattr(mouse, "Listener", factory("mouse"))
+    monkeypatch.setattr(keyboard, "Listener", factory("keys"))
+
+    r, c = _rec()
+    r.start()
+    r.start()
+
+    assert len(made["mouse"]) == 2 and len(made["keys"]) == 2
+    assert all(lst.started and lst.daemon for lst in made["mouse"] + made["keys"])
+    assert made["mouse"][0].stopped and made["keys"][0].stopped        # first pair stopped by restart
+    assert not made["mouse"][1].stopped and not made["keys"][1].stopped
+
+    r.stop()
+    assert made["mouse"][1].stopped and made["keys"][1].stopped
