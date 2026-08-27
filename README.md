@@ -22,7 +22,21 @@ re-recording, and the result is repeatable (there is no runtime randomness in th
 
 Web targets (Chromium via Playwright) are first-class; desktop windows are supported with best-effort scrolling.
 
-## Install (Windows 10/11)
+## For the marketing team (no install)
+
+There is nothing to install — no Python, no ffmpeg, no browser download.
+
+1. Download `CaptureKarma-<version>-win64.zip` from the [Releases page](https://github.com/kamaldai/CaptureKarma/releases).
+2. Unzip it anywhere (Desktop is fine). Keep `CaptureKarma.exe` and the `_internal` folder together.
+3. Double-click **CaptureKarma.exe**.
+4. **Record web** → paste your URL → perform the demo in the browser that opens → press **F9** to stop.
+   Then select the scene in the list → **Play selected**, and the MP4 lands in `Videos\CaptureKarma`.
+   **F9** aborts a take.
+
+`examples\web-demo.yaml` in the unzipped folder is a ready-made scene to try first. `ck.exe` beside it is the
+same tool on the command line. See `START-HERE.txt` for the short version.
+
+## For developers
 
     uv sync
     uv run playwright install chromium
@@ -176,6 +190,15 @@ The Windows-only tests check the finished MP4's resolution, frame rate and pixel
 part of the bundled `imageio-ffmpeg` build, so those checks read the stream layout from `ffmpeg -i` instead;
 nothing needs to be installed. If a real `ffprobe` is on your `PATH` it is used in preference, which also
 enables the end-to-end test's container-duration comparison.
+
+To build the self-contained bundle the marketing team downloads:
+
+    pwsh -File packaging/build_windows.ps1
+
+That installs Chromium *into* the `playwright` package (`PLAYWRIGHT_BROWSERS_PATH=0`), runs PyInstaller over
+`packaging/CaptureKarma.spec`, and writes `dist/CaptureKarma/` plus `dist/CaptureKarma-<version>-win64.zip`.
+Expect ~700 MB unpacked: Chromium and Qt dominate. `capturekarma/_frozen.py` is what makes the frozen app find
+the bundled Chromium and ffmpeg; `ck doctor` prints a `bundle` line saying which build it is running from.
 
 See `CLAUDE.md` for the package layout and the conventions that keep the code honest: physical pixels
 everywhere, dumb drivers, no swallowed exceptions.

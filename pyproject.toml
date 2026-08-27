@@ -22,6 +22,8 @@ ck-gui = "capturekarma.gui.app:main"
 
 [dependency-groups]
 dev = ["pytest>=8.3"]
+# Only needed to produce the self-contained Windows bundle: packaging/build_windows.ps1
+build = ["pyinstaller>=6.10"]
 
 [build-system]
 requires = ["hatchling"]
