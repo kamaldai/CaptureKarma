@@ -28,14 +28,22 @@ def fit_window_to_viewport(page, context, width: int, height: int,
     strip and window borders. Measure that chrome on a blank page, then grow the window by it via
     CDP so recording and playback agree on viewport CSS pixels. Headless Chromium has no OS window
     and sizes the viewport directly, so callers must skip this in headless mode.
+
+    ``window_pos`` is the desired *viewport* origin in screen pixels (not the window origin).
+    The window is offset by the chrome so the viewport lands at ``window_pos`` and therefore
+    stays inside a single monitor even when the viewport equals the monitor size.
     """
     page.goto("about:blank")
     m = page.evaluate(_METRICS_JS)
     dw, dh = m["ow"] - m["iw"], m["oh"] - m["ih"]
+    # Window chrome is typically: left/right = side, bottom ~= side, top = dh - side.
+    side = max(0.0, dw / 2)
+    top_chrome = max(0.0, dh - side)
     cdp = context.new_cdp_session(page)
     wid = cdp.send("Browser.getWindowForTarget")["windowId"]
     cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {
-        "left": window_pos[0], "top": window_pos[1], "width": width + dw, "height": height + dh,
+        "left": round(window_pos[0] - side), "top": round(window_pos[1] - top_chrome),
+        "width": width + dw, "height": height + dh,
         "windowState": "normal"}})
     cdp.detach()
     page.wait_for_timeout(100)
@@ -99,7 +107,8 @@ class WebDriver:
         m = self.page.evaluate(_METRICS_JS)
         dpr = float(m["dpr"])
         side = max(0.0, (m["ow"] - m["iw"]) / 2)   # headless reports outer == 0; clamp
-        top = max(0.0, m["oh"] - m["ih"])
+        # oh-ih includes top chrome + bottom border (~side); bottom is ~side on Windows
+        top = max(0.0, m["oh"] - m["ih"] - side)
         ox = round((m["sx"] + side) * dpr)
         oy = round((m["sy"] + top) * dpr)
         self.metrics = ViewportMetrics(ox, oy, dpr, int(m["iw"]), int(m["ih"]))
