@@ -104,7 +104,13 @@ class ScreenCapture:
 def start_capture(caps: Capabilities, region: Region, monitor: Monitor, fps: int, out_path: Path,
                   prefer_ddagrab: bool = True) -> ScreenCapture:
     """Start capturing and wait until frames flow. Falls back from ddagrab to gdigrab with a warning."""
-    if prefer_ddagrab and caps.ddagrab:
+    use_ddagrab = prefer_ddagrab and caps.ddagrab
+    if use_ddagrab and monitor.rotated:
+        # ddagrab hands back the unrotated panel surface, so offsets derived from virtual-screen
+        # coordinates would silently capture the wrong area. gdigrab is in virtual-screen coordinates.
+        log.warning("monitor %d is rotated; ddagrab does not honour rotation, using gdigrab", monitor.index)
+        use_ddagrab = False
+    if use_ddagrab:
         cap = ScreenCapture(caps, region, monitor, fps, out_path, use_ddagrab=True)
         cap.start()
         try:

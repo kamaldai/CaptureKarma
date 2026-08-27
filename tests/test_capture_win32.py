@@ -41,3 +41,19 @@ def test_record_one_second(tmp_path: Path):
     info = _ffprobe(exe, out)
     assert info["streams"][0]["width"] == 640 and info["streams"][0]["height"] == 360
     assert info["streams"][0]["r_frame_rate"] == "60/1"
+
+
+def test_record_on_rotated_monitor_falls_back_to_gdigrab(tmp_path: Path):
+    set_dpi_awareness()
+    exe = find_ffmpeg()
+    assert exe, "ffmpeg not found (PATH or imageio-ffmpeg)"
+    rotated = [m for m in list_monitors() if m.rotated]
+    if not rotated:
+        pytest.skip("no rotated monitor attached")
+    mon = rotated[0]
+    out = tmp_path / "rotated.mp4"
+    cap = start_capture(probe(exe), Region(mon.region.x + 10, mon.region.y + 10, 640, 360), mon, 30, out)
+    time.sleep(1.0)
+    assert cap.stop() == out and out.stat().st_size > 0
+    assert cap.use_ddagrab is False
+    assert cap.frames >= 15
