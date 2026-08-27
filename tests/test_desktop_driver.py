@@ -92,7 +92,7 @@ def test_scroll_emits_wheel_deltas_summing_to_total():
     d.setup(Scene(name="n", target=Target(kind="desktop", window="notepad"), steps=()))
     d.smooth_scroll(ScrollStep(by=300), duration=1.0, easing=get_easing("ease_in_out_cubic"))
     deltas = [c[1] for c in fi.calls if c[0] == "wheel"]
-    assert len(deltas) == 10 and sum(deltas) == -300
+    assert len(deltas) == 10 and sum(deltas) == -360  # 300 px * WHEEL_DELTA / PX_PER_NOTCH
 
 
 def test_click_type_press_forward_to_input():

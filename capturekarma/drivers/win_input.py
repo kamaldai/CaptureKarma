@@ -1,6 +1,7 @@
 """Win32 input and window helpers via ctypes. Pure helpers (parse_key, wheel_steps) work anywhere."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable, Iterator
 
@@ -8,6 +9,8 @@ from capturekarma._win import IS_WINDOWS
 from capturekarma.scene.model import Region
 
 from .base import WindowNotFound
+
+log = logging.getLogger("capturekarma.drivers.win_input")
 
 KEY_NAMES: dict[str, int] = {
     "Backspace": 0x08, "Tab": 0x09, "Enter": 0x0D, "Shift": 0x10, "Control": 0x11, "Alt": 0x12,
@@ -44,10 +47,17 @@ def parse_key(name: str) -> tuple[list[int], int]:
 
 
 def wheel_steps(total_px: int, n_ticks: int, easing: Callable[[float], float]) -> Iterator[int]:
-    """Per-tick wheel deltas (Windows sign: positive = up) whose sum is exactly -total_px."""
+    """Per-tick wheel deltas whose sum is exactly `round(-total_px * WHEEL_DELTA / PX_PER_NOTCH)`.
+
+    `total_px` is positive for a downward scroll; wheel units use the opposite Windows sign
+    (positive = up). One notch is WHEEL_DELTA units and moves PX_PER_NOTCH pixels, which is the
+    same ratio the recorder uses to turn observed wheel events into pixels. Rounding carries over
+    between ticks, so the deltas add up exactly however the easing distributes them.
+    """
+    total_units = round(-total_px * WHEEL_DELTA / PX_PER_NOTCH)
     emitted = 0
     for i in range(1, n_ticks + 1):
-        target = round(-total_px * easing(i / n_ticks))
+        target = round(total_units * easing(i / n_ticks))
         yield target - emitted
         emitted = target
 
@@ -181,5 +191,8 @@ if IS_WINDOWS:
         # Windows refuses SetForegroundWindow unless our process recently received input;
         # a synthetic ALT tap satisfies that rule.
         _send(_key(KEY_NAMES["Alt"]), _key(KEY_NAMES["Alt"], 0, KEYEVENTF_KEYUP))
-        user32.SetForegroundWindow(hwnd)
+        if not user32.SetForegroundWindow(hwnd):
+            # Not fatal: SendInput is positional, so clicks and scrolls still land on the window
+            # under the cursor. Keystrokes, however, go wherever the focus actually is.
+            log.warning("SetForegroundWindow refused for hwnd %s; continuing", hwnd)
         time.sleep(0.15)

@@ -16,8 +16,12 @@ def test_parse_unknown_key():
 
 
 def test_wheel_steps_quantize_with_carry():
-    # 250 px down over 4 ticks with linear easing -> deltas sum to exactly -250
+    # 250 px down over 4 ticks with linear easing -> 250 * 1.2 = 300 wheel units, sign negative
     deltas = list(wheel_steps(total_px=250, n_ticks=4, easing=lambda t: t))
-    assert len(deltas) == 4 and sum(deltas) == -250
+    assert len(deltas) == 4 and sum(deltas) == -300
     up = list(wheel_steps(total_px=-100, n_ticks=3, easing=lambda t: t))
-    assert sum(up) == 100
+    assert sum(up) == 120
+
+
+def test_wheel_steps_sum_is_exact_when_ticks_do_not_divide_evenly():
+    assert sum(wheel_steps(total_px=100, n_ticks=7, easing=lambda t: t)) == -120
