@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from capturekarma._win import set_dpi_awareness
 from capturekarma.scene import Scene, Target, dump_scene
 
 from .events import RawEvent
@@ -63,6 +64,9 @@ class WebRecorder:
 
         w, h = self.viewport
         if not self._headless:
+            # Before the browser window exists: Win32 must report physical px, here and for the
+            # capture region the player derives from the coordinates recorded against this window.
+            set_dpi_awareness()
             from capturekarma.drivers.web import fit_viewport_to_monitor
             w, h = fit_viewport_to_monitor(w, h)
         self._pw = sync_playwright().start()

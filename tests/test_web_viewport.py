@@ -1,4 +1,6 @@
 """Pure tests for the viewport fitting helper and the recorder's measured-viewport bookkeeping."""
+import pytest
+
 from capturekarma.capture.monitors import Monitor
 from capturekarma.drivers.web import WINDOW_CHROME, fit_viewport_to_monitor
 from capturekarma.recorder.web import WebRecorder
@@ -37,3 +39,21 @@ def test_to_scene_uses_the_measured_viewport_not_the_requested_one():
     assert rec.to_scene("t").target.viewport == (1920, 1080)   # nothing measured yet: fall back
     rec.actual_viewport = (1920, 1005)                         # what Chromium actually gave us
     assert rec.to_scene("t").target.viewport == (1920, 1005)
+
+
+def test_monitors_are_only_enumerated_after_dpi_awareness_is_declared(monkeypatch):
+    """Without awareness Win32 reports logical px, so a scaled display looks smaller than it is."""
+    from capturekarma import _win
+    from capturekarma.capture import monitors as monitors_mod
+    from capturekarma.drivers import web as web_mod
+
+    calls: list[str] = []
+    monkeypatch.setattr(_win, "IS_WINDOWS", True)
+    monkeypatch.setattr(_win, "set_dpi_awareness", lambda: calls.append("dpi") or True)
+    monkeypatch.setattr(monitors_mod, "list_monitors",
+                        lambda: calls.append("list_monitors") or _monitors((1920, 1080)))
+    monkeypatch.setattr("capturekarma.capture.list_monitors",
+                        lambda: calls.append("list_monitors") or _monitors((1920, 1080)))
+
+    assert web_mod.fit_viewport_to_monitor(1920, 1080) == (1904, 960)
+    assert calls == ["dpi", "list_monitors"]

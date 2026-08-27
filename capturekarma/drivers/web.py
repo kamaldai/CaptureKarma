@@ -67,10 +67,13 @@ def fit_viewport_to_monitor(width: int, height: int, chrome: tuple[int, int] = W
     at devicePixelRatio 1. `_measure()` records the truth after the window exists either way.
     """
     if monitors is None:
-        from capturekarma._win import IS_WINDOWS
+        from capturekarma._win import IS_WINDOWS, set_dpi_awareness
         if not IS_WINDOWS:
             return (width, height)
         from capturekarma.capture import CaptureError, list_monitors
+        # Without this the enumeration reports *logical* px, so a 1920x1080 monitor at 125% scaling
+        # measures 1536x864 and every viewport gets shrunk to a size that was never too big.
+        set_dpi_awareness()
         try:
             monitors = list_monitors()
         except CaptureError as exc:
