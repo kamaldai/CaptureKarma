@@ -1,20 +1,38 @@
 [project]
-name = "capturekarma-screen-capture"
-version = "0.1.0"
-description = "CaptureKarma Screen Capture Tool with scrolling capabilities for marketing content"
+name = "capturekarma"
+version = "2.0.0a1"
+description = "Record a product demo once, replay it with cinematic cursor and scroll motion, capture to MP4."
 readme = "README.md"
-requires-python = ">=3.8"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
 dependencies = [
-    "pyautogui",
-    "PyQt5",
-    "opencv-python",
-    "numpy",
-    "mss",
-    "Pillow",
-    "pynput",
-    "pygetwindow",
+    "playwright>=1.47",
+    "pynput>=1.7.7",
+    "Pillow>=10.4",
+    "numpy>=2.0",
+    "PyYAML>=6.0",
+    "typer>=0.12",
+    "PySide6>=6.7",
+    "imageio-ffmpeg>=0.5",
 ]
 
+[project.scripts]
+ck = "capturekarma.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["capturekarma"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "win32: needs a Windows desktop session (screen, Win32 APIs)",
+    "integration: needs Playwright Chromium installed",
+]
+addopts = "-ra"
