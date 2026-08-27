@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 ck = "capturekarma.cli:main"
+ck-gui = "capturekarma.gui.app:main"
 
 [dependency-groups]
 dev = ["pytest>=8.3"]
