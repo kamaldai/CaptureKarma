@@ -1,0 +1,21 @@
+# Open Notepad first, then:  uv run ck play examples/desktop-notepad.yaml
+# Desktop coordinates are relative to the window's client area (top-left = 0,0).
+version: 1
+name: desktop-notepad
+target:
+  kind: desktop
+  window: "Notepad"
+output:
+  fps: 60
+cursor:
+  speed: 1200
+defaults:
+  hold: 0.5
+steps:
+  - wait: 0.5
+  - click: {to: [200, 150]}
+  - type: {text: "CaptureKarma desktop demo", delay: 0.05}
+  - press: Enter
+  - type: {text: "Smooth cursor, scripted typing, reliable takes.", delay: 0.04}
+  - move: {to: [400, 300], duration: 1.0}
+  - scroll: {by: 300, duration: 1.5}

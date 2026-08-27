@@ -1,0 +1,32 @@
+# Plays against the bundled fixture page. Run:  uv run ck play examples/web-demo.yaml
+# Replace target.url with your product URL and re-record with:  uv run ck record web <url> -o my-scene.yaml
+version: 1
+name: web-demo
+target:
+  kind: web
+  url: file:///D:/Repos/CaptureKarma/tests/fixtures/page.html
+  viewport: [1280, 720]
+output:
+  fps: 60
+  dir: ~/Videos/CaptureKarma
+cursor:
+  visible: true
+  style: default
+  ripple: true
+  speed: 1400
+defaults:
+  easing: ease_in_out_cubic
+  hold: 0.6
+steps:
+  - wait: 0.5
+  - move: {to: "#btn-primary"}
+  - click: {}
+  - scroll: {by: 900, duration: 2.5}
+  - scroll: {by: -900, duration: 2.0}
+  - move: {to: "#email"}
+  - click: {}
+  - type: {text: "hello@example.com", delay: 0.06}
+  - cursor: hidden
+  - wait: 1.0
+  - cursor: visible
+  - move: {to: [640, 360], duration: 1.2}
