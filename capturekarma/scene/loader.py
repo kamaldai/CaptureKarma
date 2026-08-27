@@ -116,6 +116,8 @@ def _parse_step(raw: Any, kind: str, idx: int) -> Step:
                 raise SceneError("scroll 'to' is only supported for web scenes; use 'by'", idx)
             if "in" in val:
                 raise SceneError("scroll 'in' (container) is only supported for web scenes", idx)
+        if "in" in val and (not isinstance(val["in"], str) or not val["in"].strip()):
+            raise SceneError("scroll 'in' must be a non-empty selector", idx)
         for k in ("by", "to"):
             if k in val and (not isinstance(val[k], int) or isinstance(val[k], bool)):
                 raise SceneError(f"scroll '{k}' must be an integer number of pixels", idx)
@@ -148,6 +150,8 @@ def parse_scene(data: Any) -> Scene:
         raise SceneError("web target needs a 'url'")
     if kind == "desktop" and not (t.get("window") or t.get("region")):
         raise SceneError("desktop target needs a 'window' title or a 'region' [x, y, w, h]")
+    if t.get("window") is not None and (not isinstance(t["window"], str) or not t["window"].strip()):
+        raise SceneError(f"target.window must be a non-empty string, got {t['window']!r}")
     viewport = (1920, 1080)
     if "viewport" in t:
         vp = t["viewport"]
@@ -224,7 +228,7 @@ def _step_to_dict(step: Step) -> dict:
         return {"click": {**body, **ov}}
     if isinstance(step, ScrollStep):
         body = {"by": step.by} if step.by is not None else {"to": step.to}
-        if step.container:
+        if step.container is not None:
             body["in"] = step.container
         return {"scroll": {**body, **ov}}
     if isinstance(step, TypeStep):
@@ -245,7 +249,7 @@ def scene_to_dict(scene: Scene) -> dict:
         t["url"] = scene.target.url
         t["viewport"] = list(scene.target.viewport)
     else:
-        if scene.target.window:
+        if scene.target.window is not None:
             t["window"] = scene.target.window
         if scene.target.region:
             r = scene.target.region

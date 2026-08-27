@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -5,7 +6,7 @@ import yaml
 
 from capturekarma.scene import (
     ClickStep, CursorStep, MoveStep, PressStep, Region, SceneError, ScrollStep,
-    StepTarget, TypeStep, WaitStep, dump_scene, load_scene, parse_scene, scene_to_dict,
+    StepTarget, Target, TypeStep, WaitStep, dump_scene, load_scene, parse_scene, scene_to_dict,
 )
 
 WEB = {
@@ -108,3 +109,41 @@ def test_scene_to_dict_omits_defaults():
     assert d["steps"][2] == {"click": {}}
     assert d["steps"][5] == {"press": "Enter"}
     assert "duration" not in d["steps"][1]["move"]
+
+
+def test_empty_container_and_window_are_rejected():
+    with pytest.raises(SceneError) as ei:
+        parse_scene({**WEB, "steps": [{"scroll": {"by": 1, "in": ""}}]})
+    assert "in" in str(ei.value) and "non-empty" in str(ei.value)
+
+    with pytest.raises(SceneError) as ei:
+        parse_scene({"version": 1, "name": "d", "steps": [],
+                     "target": {"kind": "desktop", "window": "", "region": [0, 0, 10, 10]}})
+    assert "window" in str(ei.value) and "non-empty" in str(ei.value)
+
+
+def test_round_trip_preserves_container_and_window(tmp_path: Path):
+    web = parse_scene({**WEB, "steps": [{"scroll": {"by": 300, "in": "#box"}}]})
+    assert web.steps[0] == ScrollStep(by=300, container="#box")
+    p = tmp_path / "web.yaml"
+    dump_scene(web, p)
+    assert load_scene(p) == web
+    assert yaml.safe_load(p.read_text(encoding="utf-8"))["steps"][0]["scroll"]["in"] == "#box"
+
+    desk = parse_scene({"version": 1, "name": "d", "target": {"kind": "desktop", "window": "Notepad"},
+                        "steps": [{"scroll": {"by": 120}}]})
+    assert desk.target.window == "Notepad"
+    q = tmp_path / "desk.yaml"
+    dump_scene(desk, q)
+    assert load_scene(q) == desk
+    assert yaml.safe_load(q.read_text(encoding="utf-8"))["target"]["window"] == "Notepad"
+
+
+def test_scene_to_dict_never_silently_drops_a_set_field():
+    """Model-built scenes can hold values parse_scene rejects; dumping must not swallow them."""
+    web = parse_scene(WEB)
+    d = scene_to_dict(replace(web, steps=(ScrollStep(by=1, container=""),)))
+    assert d["steps"][0]["scroll"]["in"] == ""
+
+    d = scene_to_dict(replace(web, target=Target(kind="desktop", window="", region=Region(0, 0, 8, 6))))
+    assert d["target"]["window"] == ""
