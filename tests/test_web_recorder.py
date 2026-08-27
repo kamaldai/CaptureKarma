@@ -71,3 +71,16 @@ def test_wait_returns_when_stop_set(rec):
     stop = threading.Event()
     threading.Timer(0.3, stop.set).start()
     rec.wait(stop)  # must return promptly
+
+
+def test_wait_dispatches_events_live(rec):
+    # Playwright's sync API only dispatches browser events while the calling thread is inside a
+    # Playwright call, so wait() has to keep pumping: otherwise every action performed during a
+    # recording session arrives in one burst at stop() time with a collapsed timestamp.
+    rec.page.evaluate("setTimeout(() => document.querySelector('#btn-primary').click(), 200)")
+    stop = threading.Event()
+    threading.Timer(1.0, stop.set).start()
+    rec.wait(stop)
+    clicks = [e for e in rec.events if e.kind == "click"]
+    assert len(clicks) == 1
+    assert clicks[0].t < 0.7

@@ -70,8 +70,24 @@ class WebRecorder:
         log.info("recording %s — perform the demo, press F9 (or close the browser) to stop", self.url)
 
     def wait(self, stop: threading.Event, poll: float = 0.1) -> None:
+        """Block until `stop` is set or the browser goes away, pumping browser events meanwhile.
+
+        Playwright's sync API dispatches incoming events (our __ck_event bindings, page close)
+        only while the calling thread sits inside a Playwright call, so idling on the
+        threading.Event alone would buffer the whole session and stamp every event with the
+        time it was finally drained. Sleeping inside `wait_for_timeout` keeps them flowing.
+        """
+        from playwright.sync_api import Error as PlaywrightError
+
         while not stop.is_set() and not self._closed.is_set():
-            stop.wait(poll)
+            page = self.page
+            if page is None:
+                return
+            try:
+                page.wait_for_timeout(poll * 1000)
+            except PlaywrightError as exc:  # page/browser closed under us - that ends the wait
+                log.debug("wait: %s", exc)
+                self._closed.set()
 
     def stop(self) -> list[RawEvent]:
         for closer in (lambda: self._context and self._context.close(),
