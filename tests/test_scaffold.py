@@ -13,3 +13,14 @@ def test_high_res_timer_is_a_context_manager():
 
 def test_set_dpi_awareness_returns_bool():
     assert isinstance(_win.set_dpi_awareness(), bool)
+
+
+def test_scene_package_exports_names_not_submodules():
+    import capturekarma.scene as scene_pkg
+
+    assert "loader" not in scene_pkg.__all__ and "model" not in scene_pkg.__all__
+    for name in ("Scene", "SceneError", "load_scene", "dump_scene", "parse_scene", "scene_to_dict",
+                 "Target", "Region", "StepTarget", "EASING_NAMES"):
+        assert name in scene_pkg.__all__
+    for name in scene_pkg.__all__:
+        assert hasattr(scene_pkg, name), name

@@ -9,7 +9,7 @@
   header { height: 80px; background: #1e293b; color: #fff; display: flex; align-items: center; padding: 0 24px; }
   .row { display: flex; gap: 16px; padding: 24px; }
   button { padding: 12px 20px; font-size: 16px; }
-  #email { width: 260px; padding: 8px; font-size: 16px; }
+  #email, #pw { width: 260px; padding: 8px; font-size: 16px; }
   #box { margin: 24px; width: 300px; height: 200px; overflow-y: auto; border: 2px solid #334155; background: #fff; }
   #box .inner { height: 1500px; background: repeating-linear-gradient(#fff 0 49px, #e2e8f0 49px 50px); }
   #deep { position: absolute; top: 3000px; left: 24px; }
@@ -22,6 +22,7 @@
   <button id="btn-secondary">Secondary</button>
   <button class="plain">Plain</button>
   <input id="email" type="email" placeholder="email">
+  <input id="pw" type="password" placeholder="password">
 </div>
 <div id="box"><div class="inner"></div></div>
 <button id="deep">Deep Button</button>

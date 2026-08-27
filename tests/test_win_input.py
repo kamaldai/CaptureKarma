@@ -25,3 +25,11 @@ def test_wheel_steps_quantize_with_carry():
 
 def test_wheel_steps_sum_is_exact_when_ticks_do_not_divide_evenly():
     assert sum(wheel_steps(total_px=100, n_ticks=7, easing=lambda t: t)) == -120
+
+
+@pytest.mark.win32
+def test_get_foreground_window_returns_a_handle():
+    from capturekarma.drivers.win_input import get_foreground_window
+
+    hwnd = get_foreground_window()
+    assert isinstance(hwnd, int) and hwnd >= 0

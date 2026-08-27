@@ -70,11 +70,16 @@ def build_capture_args(caps: Capabilities, region: Region, monitor: Monitor, fps
                 f":offset_y={r.y - monitor.region.y}:video_size={r.width}x{r.height}"
                 f":framerate={fps}:draw_mouse=0")
         args += ["-f", "lavfi", "-i", spec]
+        # ddagrab hands out D3D11 hardware frames. Both encoders need them downloaded first: an
+        # explicit -pix_fmt on hardware frames makes NVENC fail with "Impossible to convert between
+        # the formats supported by the filter 'Parsed_null_0' and the filter 'auto_scale_0'", and
+        # spec 3.6 requires yuv420p on every branch so any player can decode the result.
+        args += ["-vf", "hwdownload,format=bgra"]
         if caps.nvenc:
             args += ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "19", "-rc", "vbr"]
         else:
-            args += ["-vf", "hwdownload,format=bgra", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                     "-pix_fmt", "yuv420p"]
+            args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
+        args += ["-pix_fmt", "yuv420p"]
     else:
         args += ["-f", "gdigrab", "-framerate", str(fps), "-offset_x", str(r.x), "-offset_y", str(r.y),
                  "-video_size", f"{r.width}x{r.height}", "-draw_mouse", "0", "-i", "desktop"]

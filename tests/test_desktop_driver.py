@@ -101,3 +101,18 @@ def test_click_type_press_forward_to_input():
     d.pointer_to(5, 6); d.mouse_down(); d.mouse_up(); d.type_text("hi", 0.01); d.press("Enter")
     assert ("pos", 5, 6) in fi.calls and ("btn", "left", True) in fi.calls and ("btn", "left", False) in fi.calls
     assert ("type", "hi", 0.01) in fi.calls and ("press", "Enter") in fi.calls
+
+
+def test_press_reports_an_unknown_key_as_a_step_error():
+    """A bad `press:` key is a scene problem, not a crash: parse_key's ValueError becomes StepError."""
+    from capturekarma.drivers.win_input import parse_key
+
+    class RealParsingInput(FakeInput):
+        def press_key(self, name):
+            parse_key(name)                 # the real name check, without touching SendInput
+            self.calls.append(("press", name))
+
+    d = DesktopDriver(input_module=RealParsingInput())
+    with pytest.raises(StepError, match="Hyper"):
+        d.press("Hyper")
+    d.press("Enter")                        # a good key still goes through

@@ -21,6 +21,7 @@ record_app = typer.Typer(help="Record a scene file by performing the demo once."
 app.add_typer(record_app, name="record")
 
 _ERRORS = (SceneError, StepError, DriverError, CaptureError)
+log = logging.getLogger("capturekarma.cli")
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -29,7 +30,7 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def _fail(exc: BaseException) -> NoReturn:
-    typer.secho(f"error: {exc}", fg=typer.colors.RED, err=False)
+    typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
     raise typer.Exit(code=1)
 
 
@@ -56,6 +57,9 @@ def record_web_cmd(
         path = record_web(url, out, viewport=vp, name=name)
     except _ERRORS as exc:
         _fail(exc)
+    except Exception as exc:  # noqa: BLE001 - a CLI must not spray tracebacks; -v shows the full one
+        log.debug("unexpected error", exc_info=True)
+        _fail(exc)
     typer.echo(f"wrote {path}")
 
 
@@ -71,6 +75,9 @@ def record_desktop_cmd(
     try:
         path = record_desktop(window, out, name=name)
     except _ERRORS as exc:
+        _fail(exc)
+    except Exception as exc:  # noqa: BLE001 - a CLI must not spray tracebacks; -v shows the full one
+        log.debug("unexpected error", exc_info=True)
         _fail(exc)
     typer.echo(f"wrote {path}")
 
@@ -100,6 +107,9 @@ def play(
         finally:
             hotkey.stop()
     except _ERRORS as exc:
+        _fail(exc)
+    except Exception as exc:  # noqa: BLE001 - a CLI must not spray tracebacks; -v shows the full one
+        log.debug("unexpected error", exc_info=True)
         _fail(exc)
     status = "PARTIAL " if result.partial else ""
     typer.echo(f"{status}saved {result.video} ({result.duration:.1f}s, {result.frames} frames)")

@@ -45,6 +45,8 @@
     return unique(path) ? path : null;
   }
 
+  // The binding is gone once the recorder detaches (page closing, navigation racing stop()):
+  // losing an event then is expected, and throwing here would break the page under the user.
   const send = payload => { try { window.__ck_event(JSON.stringify(payload)); } catch (e) {} };
 
   document.addEventListener("click", e => {
@@ -79,8 +81,14 @@
     }
   }, true);
 
+  const STOP_KEYS = new Set(["F9", "Escape"]);
+  const isPasswordField = el =>
+    !!el && el.nodeType === 1 && el.tagName === "INPUT" && String(el.type).toLowerCase() === "password";
+
   document.addEventListener("keydown", e => {
     if (e.isComposing) return;
+    if (STOP_KEYS.has(e.key)) return;          // the stop hotkeys are never part of the demo
+    if (isPasswordField(e.target)) return;     // privacy: passwords never reach the scene file
     send({ kind: "key", key: e.key });
   }, true);
 })();

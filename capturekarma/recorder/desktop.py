@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from capturekarma._win import set_dpi_awareness
 from capturekarma.drivers import win_input
 from capturekarma.drivers.win_input import PX_PER_NOTCH
 from capturekarma.scene import Scene, Target, dump_scene
@@ -30,10 +31,25 @@ PYNPUT_KEY_NAMES: dict[str, str] = {
 STOP_KEYS = {"f9", "esc"}
 
 
+def _foreground_window() -> int:
+    """Handle of the window that currently has focus (0 when it cannot be determined)."""
+    return win_input.get_foreground_window()
+
+
 class DesktopRecorder:
-    def __init__(self, region: Region, clock: Callable[[], float] = time.perf_counter):
+    """Turn global mouse/keyboard events into RawEvents.
+
+    `target_hwnd` limits key capture to the window being recorded: the pynput hook is global, so
+    without it every keystroke typed anywhere while recording would land in the scene file.
+    """
+
+    def __init__(self, region: Region, clock: Callable[[], float] = time.perf_counter,
+                 target_hwnd: int | None = None,
+                 foreground: Callable[[], int] = _foreground_window):
         self.region = region
+        self.target_hwnd = target_hwnd
         self._clock = clock
+        self._foreground = foreground
         self._t0 = clock()
         self.events: list[RawEvent] = []
         self._mouse = None
@@ -59,8 +75,18 @@ class DesktopRecorder:
         if dy and self._inside(x, y):
             self.events.append(RawEvent(t=self._t(), kind="scroll", delta=int(-dy * PX_PER_NOTCH)))
 
+    def _target_has_focus(self) -> bool:
+        """True when keystrokes belong to the recorded window (always true without a target)."""
+        if self.target_hwnd is None:
+            return True
+        return self._foreground() == self.target_hwnd
+
     def on_press(self, key_name: str | None, char: str | None) -> None:
         if key_name in STOP_KEYS:
+            return
+        if not self._target_has_focus():
+            # Privacy: typing in another window (a password manager, chat) is never recorded.
+            log.debug("dropping a keystroke: the recorded window is not in the foreground")
             return
         if char is not None:
             self.events.append(RawEvent(t=self._t(), kind="key", key=char))
@@ -110,10 +136,13 @@ class DesktopRecorder:
 
 
 def record_desktop(window: str, out_path: Path, name: str | None = None) -> Path:
+    # Before any window lookup: without it Win32 reports logical px on a scaled display and the
+    # CLI would record different coordinates than the GUI and the player, which do declare it.
+    set_dpi_awareness()
     hwnd, title = win_input.find_window(window)
     win_input.focus_window(hwnd)
     region = win_input.window_client_region(hwnd)
-    rec = DesktopRecorder(region)
+    rec = DesktopRecorder(region, target_hwnd=hwnd)
     hotkey = StopHotkey()
     rec.start()
     hotkey.start()

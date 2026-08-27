@@ -21,20 +21,24 @@ def set_dpi_awareness() -> bool:
 
     user32 = ctypes.windll.user32
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
+    ERROR_ACCESS_DENIED, S_OK, E_ACCESSDENIED = 5, 0, 0x80070005
     try:
         if user32.SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2):
             return True
-        # ERROR_ACCESS_DENIED (5) means awareness was already set for this process.
-        if ctypes.get_last_error() == 5 or ctypes.GetLastError() == 5:
+        # ERROR_ACCESS_DENIED means awareness was already set for this process.
+        if ctypes.GetLastError() == ERROR_ACCESS_DENIED:
             return True
     except AttributeError:
         pass  # pre-1703 Windows: fall through to shcore
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
-        return True
+        hr = ctypes.windll.shcore.SetProcessDpiAwareness(2) & 0xFFFFFFFF  # PROCESS_PER_MONITOR_DPI_AWARE
     except Exception as exc:  # noqa: BLE001 - reported to caller via return value
         log.warning("Could not set DPI awareness: %s", exc)
         return False
+    if hr in (S_OK, E_ACCESSDENIED):  # E_ACCESSDENIED: already set, which is what we wanted
+        return True
+    log.warning("SetProcessDpiAwareness failed with HRESULT 0x%08X", hr)
+    return False
 
 
 @contextlib.contextmanager

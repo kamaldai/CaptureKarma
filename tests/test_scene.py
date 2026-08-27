@@ -147,3 +147,105 @@ def test_scene_to_dict_never_silently_drops_a_set_field():
 
     d = scene_to_dict(replace(web, target=Target(kind="desktop", window="", region=Region(0, 0, 8, 6))))
     assert d["target"]["window"] == ""
+
+
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+FIXTURE_PAGE = Path(__file__).resolve().parent / "fixtures" / "page.html"
+
+
+@pytest.mark.parametrize("section", ["output", "cursor", "defaults"])
+def test_scalar_section_is_rejected_as_not_a_mapping(section):
+    bad = {**WEB, section: 5}
+    with pytest.raises(SceneError, match=f"{section} must be a mapping"):
+        parse_scene(bad)
+
+
+@pytest.mark.parametrize("section", ["output", "cursor", "defaults"])
+def test_list_section_is_rejected_as_not_a_mapping(section):
+    with pytest.raises(SceneError, match=f"{section} must be a mapping"):
+        parse_scene({**WEB, section: ["fps"]})
+
+
+@pytest.mark.parametrize("section", ["output", "cursor", "defaults"])
+def test_null_section_falls_back_to_defaults(section):
+    scene = parse_scene({**WEB, section: None})
+    assert getattr(scene, section if section != "cursor" else "cursor") is not None
+
+
+@pytest.mark.parametrize("name", ["a/b", "a\\b", "c:name", "star*", "q?", 'quo"te', "lt<", "gt>", "pipe|",
+                                  ".hidden", "trailing.", " leading", "trailing "])
+def test_name_rejects_characters_illegal_in_file_names(name):
+    with pytest.raises(SceneError, match="name contains characters not allowed in file names"):
+        parse_scene({**WEB, "name": name})
+
+
+@pytest.mark.parametrize("name", ["demo", "web-demo", "my scene 2", "v1.2 demo"])
+def test_name_accepts_ordinary_names(name):
+    assert parse_scene({**WEB, "name": name}).name == name
+
+
+def test_step_target_without_selector_or_coordinates_raises_scene_error():
+    from capturekarma.scene.loader import _target_out
+
+    with pytest.raises(SceneError, match="step target needs a selector or coordinates"):
+        _target_out(StepTarget())
+
+
+def test_dump_scene_reports_an_empty_step_target_as_a_scene_error(tmp_path: Path):
+    scene = parse_scene(WEB)
+    broken = replace(scene, steps=(MoveStep(to=StepTarget()),))
+    with pytest.raises(SceneError, match="step target needs a selector or coordinates"):
+        dump_scene(broken, tmp_path / "broken.yaml")
+
+
+# ---- portable (scene-relative) web URLs ----
+
+def _write(path: Path, url: str) -> Path:
+    path.write_text(f"version: 1\nname: rel\ntarget: {{kind: web, url: {url!r}}}\nsteps: []\n",
+                    encoding="utf-8")
+    return path
+
+
+def test_relative_web_url_resolves_against_the_scene_directory(tmp_path: Path):
+    page = tmp_path / "page.html"
+    page.write_text("<!doctype html><title>x</title>", encoding="utf-8")
+    scene = load_scene(_write(tmp_path / "s.yaml", "page.html"))
+    assert scene.target.url == page.resolve().as_uri()
+
+
+def test_relative_web_url_may_climb_out_of_the_scene_directory(tmp_path: Path):
+    sub = tmp_path / "scenes"
+    sub.mkdir()
+    page = tmp_path / "page.html"
+    page.write_text("<!doctype html><title>x</title>", encoding="utf-8")
+    scene = load_scene(_write(sub / "s.yaml", "../page.html"))
+    assert scene.target.url == page.resolve().as_uri()
+
+
+def test_missing_relative_web_url_raises_scene_error(tmp_path: Path):
+    with pytest.raises(SceneError, match="nope.html"):
+        load_scene(_write(tmp_path / "s.yaml", "nope.html"))
+
+
+@pytest.mark.parametrize("url", ["https://example.com/pricing", "http://localhost:8000/",
+                                 "file:///C:/tmp/page.html", "about:blank"])
+def test_urls_with_a_scheme_are_left_untouched(tmp_path: Path, url):
+    assert load_scene(_write(tmp_path / "s.yaml", url)).target.url == url
+
+
+def test_parse_scene_leaves_relative_urls_alone():
+    """parse_scene has no file context, so it cannot (and must not) resolve a relative path."""
+    assert parse_scene({**WEB, "target": {"kind": "web", "url": "page.html"}}).target.url == "page.html"
+
+
+@pytest.mark.parametrize("path", sorted(EXAMPLES_DIR.glob("*.yaml")), ids=lambda p: p.name)
+def test_shipped_examples_load(path: Path):
+    scene = load_scene(path)
+    assert scene.steps
+    if scene.target.kind == "web":
+        assert scene.target.url and ("://" in scene.target.url or scene.target.url.startswith("about:"))
+
+
+def test_web_example_points_at_the_bundled_fixture_page():
+    scene = load_scene(EXAMPLES_DIR / "web-demo.yaml")
+    assert scene.target.url == FIXTURE_PAGE.resolve().as_uri()

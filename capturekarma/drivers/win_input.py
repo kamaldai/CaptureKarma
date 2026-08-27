@@ -176,6 +176,10 @@ if IS_WINDOWS:
             raise WindowNotFound(f"no visible window title contains {substring!r}. Visible windows:\n  {visible}")
         return matches[0]
 
+    def get_foreground_window() -> int:
+        """Handle of the window with keyboard focus; 0 when no window has it."""
+        return int(user32.GetForegroundWindow() or 0)
+
     def window_client_region(hwnd: int) -> Region:
         rect = wintypes.RECT()
         if not user32.GetClientRect(hwnd, ctypes.byref(rect)):

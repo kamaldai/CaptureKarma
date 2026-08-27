@@ -21,7 +21,10 @@ def test_ddagrab_nvenc_args():
     joined = " ".join(args)
     assert "-f lavfi -i ddagrab=output_idx=1:offset_x=100:offset_y=100:video_size=800x600:framerate=60:draw_mouse=0" in joined
     assert "-c:v h264_nvenc" in joined and "-movflags +faststart" in joined
-    assert "hwdownload" not in joined
+    assert "-pix_fmt yuv420p" in joined      # spec 3.6: every branch produces 4:2:0 for player compatibility
+    # NVENC cannot honour an explicit -pix_fmt while the frames are still on the GPU, so the
+    # ddagrab frames come down first here too (verified against real ddagrab + NVENC hardware).
+    assert joined.index("-vf hwdownload,format=bgra") < joined.index("-c:v h264_nvenc")
     assert "-progress pipe:1" in joined and "-nostats" in joined
 
 

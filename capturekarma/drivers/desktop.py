@@ -66,7 +66,11 @@ class DesktopDriver:
         self._in.type_text(text, delay)
 
     def press(self, key: str) -> None:
-        self._in.press_key(key)
+        try:
+            self._in.press_key(key)
+        except ValueError as exc:
+            # parse_key rejects unknown key/modifier names: a scene problem, not a crash.
+            raise StepError(f"cannot press {key!r}: {exc}") from exc
 
     def screenshot(self, path: Path) -> None:
         from PIL import ImageGrab

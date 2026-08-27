@@ -110,3 +110,8 @@ def test_setup_bad_url_raises_driver_error_and_tears_down():
         d.setup(Scene(name="t", target=Target(kind="web", url="http://127.0.0.1:9/",
                                               viewport=(800, 600)), steps=()))
     assert d.page is None and d._browser is None and d._context is None and d._pw is None
+
+
+def test_malformed_selector_raises_step_error_not_a_playwright_error(driver):
+    with pytest.raises(StepError, match="invalid or failing selector"):
+        driver.resolve(StepTarget(selector="#btn-primary >>> :::"))

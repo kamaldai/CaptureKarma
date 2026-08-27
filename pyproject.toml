@@ -36,4 +36,6 @@ markers = [
     "win32: needs a Windows desktop session (screen, Win32 APIs)",
     "integration: needs Playwright Chromium installed",
 ]
-addopts = "-ra"
+# Default run is pure: no desktop, no browser. Override on the command line with
+#   uv run pytest -q -m "win32 or integration"
+addopts = "-ra -m 'not win32 and not integration'"

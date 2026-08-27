@@ -1,4 +1,7 @@
+import threading
+
 from capturekarma.recorder.desktop import DesktopRecorder
+from capturekarma.scene import dump_scene, load_scene
 from capturekarma.scene.model import (
     ClickStep, MoveStep, PressStep, Region, ScrollStep, StepTarget, TypeStep, WaitStep,
 )
@@ -103,3 +106,136 @@ def test_start_is_idempotent_and_stops_previous_listeners(monkeypatch):
 
     r.stop()
     assert made["mouse"][1].stopped and made["keys"][1].stopped
+
+
+def test_keys_recorded_only_while_the_target_window_is_in_the_foreground():
+    """Privacy: with a target window, keystrokes typed into other windows are never recorded."""
+    fg = {"hwnd": 4242}
+    r = DesktopRecorder(Region(0, 0, 800, 600), clock=Clock(), target_hwnd=4242,
+                        foreground=lambda: fg["hwnd"])
+    r.on_press(None, "a")
+    fg["hwnd"] = 99                     # user alt-tabbed to their password manager
+    r.on_press(None, "s")
+    r.on_press("enter", None)
+    fg["hwnd"] = 4242
+    r.on_press(None, "b")
+    assert [e.key for e in r.events] == ["a", "b"]
+
+
+def test_keys_always_recorded_without_a_target_window():
+    calls: list[int] = []
+
+    def fg() -> int:
+        calls.append(1)
+        return 7
+
+    r = DesktopRecorder(Region(0, 0, 800, 600), clock=Clock(), target_hwnd=None, foreground=fg)
+    r.on_press(None, "a")
+    r.on_press("enter", None)
+    assert [e.key for e in r.events] == ["a", "Enter"]
+    assert calls == []                  # no foreground lookup at all when there is no target
+
+
+def test_clicks_and_scrolls_are_not_gated_on_the_foreground_window():
+    r = DesktopRecorder(Region(0, 0, 800, 600), clock=Clock(), target_hwnd=1, foreground=lambda: 2)
+    r.on_click(10, 10, "left", True)
+    r.on_scroll(10, 10, 0, -1)
+    assert [e.kind for e in r.events] == ["click", "scroll"]
+
+
+def test_record_desktop_sets_dpi_awareness_before_looking_up_the_window(tmp_path, monkeypatch):
+    from capturekarma.drivers import win_input
+    from capturekarma.recorder import desktop as desktop_mod
+
+    calls: list[str] = []
+
+    def fake_find_window(substring: str):
+        calls.append("find_window")
+        return 1234, "Fixture Window"
+
+    monkeypatch.setattr(desktop_mod, "set_dpi_awareness", lambda: calls.append("set_dpi_awareness") or True)
+    monkeypatch.setattr(win_input, "find_window", fake_find_window, raising=False)
+    monkeypatch.setattr(win_input, "focus_window",
+                        lambda hwnd: calls.append("focus_window"), raising=False)
+    monkeypatch.setattr(win_input, "window_client_region",
+                        lambda hwnd: calls.append("window_client_region") or Region(0, 0, 800, 600),
+                        raising=False)
+    monkeypatch.setattr(DesktopRecorder, "start", lambda self: calls.append("start"))
+    monkeypatch.setattr(DesktopRecorder, "stop", lambda self: calls.append("stop") or self.events)
+
+    class FakeHotkey:
+        def __init__(self):
+            self.triggered = threading.Event()
+            self.triggered.set()
+
+        def start(self):
+            calls.append("hotkey.start")
+
+        def stop(self):
+            calls.append("hotkey.stop")
+
+    monkeypatch.setattr(desktop_mod, "StopHotkey", FakeHotkey)
+
+    out = tmp_path / "d.yaml"
+    assert desktop_mod.record_desktop("Fixture", out) == out
+    assert out.exists()
+    assert calls.index("set_dpi_awareness") < calls.index("find_window")
+    for later in ("window_client_region", "start"):
+        assert calls.index("set_dpi_awareness") < calls.index(later)
+
+
+def test_record_desktop_passes_the_target_window_to_the_recorder(tmp_path, monkeypatch):
+    from capturekarma.drivers import win_input
+    from capturekarma.recorder import desktop as desktop_mod
+
+    made: list[DesktopRecorder] = []
+    real_init = DesktopRecorder.__init__
+
+    def spy_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        made.append(self)
+
+    monkeypatch.setattr(desktop_mod, "set_dpi_awareness", lambda: True)
+    monkeypatch.setattr(win_input, "find_window", lambda s: (4242, "Fixture Window"), raising=False)
+    monkeypatch.setattr(win_input, "focus_window", lambda hwnd: None, raising=False)
+    monkeypatch.setattr(win_input, "window_client_region", lambda hwnd: Region(0, 0, 800, 600), raising=False)
+    monkeypatch.setattr(DesktopRecorder, "__init__", spy_init)
+    monkeypatch.setattr(DesktopRecorder, "start", lambda self: None)
+    monkeypatch.setattr(DesktopRecorder, "stop", lambda self: self.events)
+
+    class FakeHotkey:
+        def __init__(self):
+            self.triggered = threading.Event()
+            self.triggered.set()
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(desktop_mod, "StopHotkey", FakeHotkey)
+    desktop_mod.record_desktop("Fixture", tmp_path / "d.yaml")
+    assert [r.target_hwnd for r in made] == [4242]
+
+
+def test_recorder_scene_survives_a_dump_load_round_trip(tmp_path):
+    r, c = _rec()
+    c.t = 0.1; r.on_click(150, 260, "left", True)
+    c.t = 0.5; r.on_scroll(300, 300, 0, -3)
+    c.t = 0.9; r.on_press(None, "h")
+    c.t = 1.0; r.on_press(None, "i")
+    c.t = 1.4; r.on_press("enter", None)
+    scene = r.to_scene("round-trip", window="Notepad")
+    path = tmp_path / "round-trip.yaml"
+    dump_scene(scene, path)
+    assert load_scene(path) == scene
+
+
+def test_recorder_scene_with_a_region_target_survives_a_round_trip(tmp_path):
+    r, c = _rec()
+    c.t = 0.2; r.on_click(150, 260, "left", True)
+    scene = r.to_scene("region-scene")          # no window -> region target
+    path = tmp_path / "region-scene.yaml"
+    dump_scene(scene, path)
+    assert load_scene(path) == scene

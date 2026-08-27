@@ -153,14 +153,24 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
   this for you).
 - **Rotated / portrait monitors fall back to `gdigrab`** automatically, because `ddagrab` cannot capture them.
   `--gdigrab` forces the same path anywhere else.
+- **Recording watches your keyboard.** Desktop recording installs a system-wide keyboard hook while it is
+  active; keystrokes are only recorded while the target window is in the foreground, but the hook itself sees
+  everything until you press F9. Web recording skips `input[type=password]` fields entirely. Scene files are
+  plain-text YAML with every keystroke you typed in them — read one before you share it.
+- **An inner scroll container with no unique selector is recorded as a page scroll.** If the recorder cannot
+  name the element you scrolled, the step is written as a page scroll; add an `id` to the container or
+  hand-edit the step's `in:` selector.
 - **MP4 (H.264) is the only output.** No WebM or GIF, and no auto-zoom, device frames or captions — the
   `.cursor.json` timeline exists so those can be added later as a post-pass.
 - **The command-line entry point is `ck`.**
 
 ## Development
 
-    uv run pytest -q                                  # pure tests
-    uv run pytest -q -m "win32 or integration"        # everything, needs a desktop + Chromium
+    uv run pytest -q                                  # pure tests: no desktop, no browser
+    uv run pytest -q -m "win32 or integration"        # the desktop/browser tests, needs a desktop + Chromium
+
+Run both commands for the full set: the default run deselects everything marked `win32` or `integration`,
+and the second command selects exactly those.
 
 The Windows-only end-to-end test checks the finished MP4 with `ffprobe`, which is *not* part of the bundled
 `imageio-ffmpeg` build — install a full ffmpeg on `PATH` if you want to run it. Nothing else needs `ffprobe`.

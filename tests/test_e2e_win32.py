@@ -35,8 +35,9 @@ def test_play_web_fixture_end_to_end(tmp_path: Path, fixture_url: str):
         pytest.skip("ffprobe not on PATH; video produced but not probed")
     info = json.loads(subprocess.run(
         [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
-         "stream=r_frame_rate,width,height:format=duration", "-of", "json", str(res.video)],
+         "stream=r_frame_rate,width,height,pix_fmt:format=duration", "-of", "json", str(res.video)],
         capture_output=True, text=True, check=True).stdout)
     assert info["streams"][0]["r_frame_rate"] == "60/1"
+    assert info["streams"][0]["pix_fmt"] == "yuv420p"   # 4:2:0 so every player can decode it
     assert abs(float(info["format"]["duration"]) - res.duration) <= 0.5
     assert info["streams"][0]["width"] % 2 == 0 and info["streams"][0]["height"] % 2 == 0

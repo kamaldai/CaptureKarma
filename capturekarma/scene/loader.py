@@ -1,7 +1,7 @@
 """YAML <-> Scene with strict validation."""
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,9 @@ from .model import (
 
 STEP_KEYS = ("wait", "move", "click", "scroll", "type", "press", "cursor")
 OVERRIDE_KEYS = ("duration", "easing", "hold")
+#: Characters Windows (and most other file systems) refuse in a file name. The scene name becomes
+#: the video's filename stem, so reject them at parse time rather than at the end of a long run.
+_ILLEGAL_NAME_CHARS = '/\\:*?"<>|'
 
 
 class SceneError(ValueError):
@@ -21,6 +24,16 @@ class SceneError(ValueError):
         prefix = f"step {step_index + 1}: " if step_index is not None else ""
         super().__init__(prefix + message)
         self.step_index = step_index
+
+
+def _section(data: dict, key: str) -> dict:
+    """A top-level `output` / `cursor` / `defaults` block: a mapping, or absent (`{}` / `null`)."""
+    value = data.get(key, {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise SceneError(f"{key} must be a mapping")
+    return value
 
 
 def _require_keys(d: dict, allowed: tuple[str, ...], where: str, idx: int | None = None) -> None:
@@ -138,6 +151,8 @@ def parse_scene(data: Any) -> Scene:
     name = data.get("name")
     if not isinstance(name, str) or not name.strip():
         raise SceneError("scene needs a non-empty 'name'")
+    if (set(name) & set(_ILLEGAL_NAME_CHARS)) or name[0] in ". " or name[-1] in ". ":
+        raise SceneError("name contains characters not allowed in file names")
 
     t = data.get("target")
     if not isinstance(t, dict):
@@ -166,7 +181,7 @@ def parse_scene(data: Any) -> Scene:
         region = Region(*r)
     target = Target(kind=kind, url=t.get("url"), viewport=viewport, window=t.get("window"), region=region)
 
-    o = data.get("output", {}) or {}
+    o = _section(data, "output")
     _require_keys(o, ("fps", "dir", "lead_in", "lead_out"), "output")
     fps = o.get("fps", 60)
     if not isinstance(fps, int) or isinstance(fps, bool) or not 1 <= fps <= 240:
@@ -175,7 +190,7 @@ def parse_scene(data: Any) -> Scene:
                     lead_in=_non_negative(o.get("lead_in", 0.5), "output.lead_in", None),
                     lead_out=_non_negative(o.get("lead_out", 0.5), "output.lead_out", None))
 
-    c = data.get("cursor", {}) or {}
+    c = _section(data, "cursor")
     _require_keys(c, ("visible", "style", "ripple", "speed"), "cursor")
     speed = c.get("speed", 1400)
     if not isinstance(speed, (int, float)) or speed <= 0:
@@ -183,7 +198,7 @@ def parse_scene(data: Any) -> Scene:
     cursor = CursorConfig(visible=bool(c.get("visible", True)), style=str(c.get("style", "default")),
                           ripple=bool(c.get("ripple", True)), speed=float(speed))
 
-    d = data.get("defaults", {}) or {}
+    d = _section(data, "defaults")
     _require_keys(d, ("easing", "hold"), "defaults")
     easing = d.get("easing", "ease_in_out_cubic")
     if easing not in EASING_NAMES:
@@ -198,7 +213,16 @@ def parse_scene(data: Any) -> Scene:
                  defaults=defaults, version=1)
 
 
+def _has_url_scheme(url: str) -> bool:
+    return "://" in url or url.startswith("about:")
+
+
 def load_scene(path: str | Path) -> Scene:
+    """Parse a scene file. A `web` url without a scheme is a path relative to the scene file.
+
+    That is what makes a scene portable: `url: ../tests/fixtures/page.html` works from any clone,
+    while `parse_scene` (which has no file to be relative to) leaves such a url alone.
+    """
     p = Path(path)
     try:
         data = yaml.safe_load(p.read_text(encoding="utf-8"))
@@ -206,11 +230,23 @@ def load_scene(path: str | Path) -> Scene:
         raise SceneError(f"{p}: invalid YAML: {exc}") from exc
     except OSError as exc:
         raise SceneError(f"{p}: cannot read scene file: {exc}") from exc
-    return parse_scene(data)
+    scene = parse_scene(data)
+
+    url = scene.target.url
+    if scene.target.kind == "web" and url and not _has_url_scheme(url):
+        local = (p.parent / Path(url).expanduser()).resolve() if not Path(url).expanduser().is_absolute()             else Path(url).expanduser().resolve()
+        if not local.is_file():
+            raise SceneError(f"target.url {url!r} is not a URL and no such file exists: {local}")
+        scene = replace(scene, target=replace(scene.target, url=local.as_uri()))
+    return scene
 
 
 def _target_out(t: StepTarget) -> Any:
-    return t.selector if t.selector is not None else list(t.at)  # type: ignore[arg-type]
+    if t.selector is not None:
+        return t.selector
+    if t.at is None:
+        raise SceneError("step target needs a selector or coordinates")
+    return list(t.at)
 
 
 def _step_to_dict(step: Step) -> dict:

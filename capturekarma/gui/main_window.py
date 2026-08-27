@@ -14,7 +14,7 @@ from capturekarma.cursor.sprites import available_styles
 from capturekarma.player import Player, PlayOptions
 from capturekarma.recorder.desktop import record_desktop
 from capturekarma.recorder.web import record_web
-from capturekarma.scene import load_scene
+from capturekarma.scene import SceneError, load_scene
 
 from .worker import Worker
 
@@ -218,12 +218,24 @@ class MainWindow(QMainWindow):
             n += 1
         return self.scenes_dir / f"{prefix}-{n}.yaml"
 
+    def _output_dir_for_selection(self) -> Path:
+        """Where the selected scene's video would land, or the default folder when there is none."""
+        path = self._selected_scene()
+        if path is None:
+            return self.output_dir
+        try:
+            return Path(load_scene(path).output.dir).expanduser()
+        except (SceneError, OSError) as exc:
+            self.append_log(f"could not read {path.name}: {exc}; opening {self.output_dir}")
+            return self.output_dir
+
     def _open_output(self) -> None:
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        target = self._output_dir_for_selection()
+        target.mkdir(parents=True, exist_ok=True)
         if IS_WINDOWS:
             try:
-                os.startfile(self.output_dir)  # type: ignore[attr-defined]
+                os.startfile(target)  # type: ignore[attr-defined]
             except OSError as exc:
-                self.append_log(f"ERROR: could not open {self.output_dir}: {exc}")
+                self.append_log(f"ERROR: could not open {target}: {exc}")
         else:
-            self.append_log(str(self.output_dir))
+            self.append_log(str(target))

@@ -4,4 +4,9 @@ from .model import (
     Region, Scene, ScrollStep, Step, StepBase, StepTarget, Target, TypeStep, WaitStep,
 )
 
-__all__ = [n for n in dir() if not n.startswith("_")]
+__all__ = [
+    "EASING_NAMES", "ClickStep", "CursorConfig", "CursorStep", "Defaults", "MoveStep", "Output",
+    "Point", "PressStep", "Region", "Scene", "SceneError", "ScrollStep", "Step", "StepBase",
+    "StepTarget", "Target", "TypeStep", "WaitStep",
+    "dump_scene", "load_scene", "parse_scene", "scene_to_dict",
+]

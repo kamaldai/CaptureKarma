@@ -84,3 +84,36 @@ def test_wait_dispatches_events_live(rec):
     clicks = [e for e in rec.events if e.kind == "click"]
     assert len(clicks) == 1
     assert clicks[0].t < 0.7
+
+
+def test_password_input_keystrokes_are_never_recorded(rec):
+    rec.page.click("#pw")
+    rec.page.keyboard.type("hunter2")
+    rec.page.keyboard.press("Enter")
+    rec.page.wait_for_timeout(200)
+    assert [e for e in rec.events if e.kind == "key"] == []
+    assert any(e.kind == "click" for e in rec.events)     # the click itself is still recorded
+
+
+def test_stop_keys_are_never_recorded(rec):
+    rec.page.click("#email")
+    rec.page.keyboard.press("F9")
+    rec.page.keyboard.press("Escape")
+    rec.page.keyboard.type("a")
+    rec.page.wait_for_timeout(200)
+    assert [e.key for e in rec.events if e.kind == "key"] == ["a"]
+
+
+def test_recorded_scene_survives_a_dump_load_round_trip(rec, tmp_path):
+    from capturekarma.scene import dump_scene, load_scene
+
+    rec.page.click("#btn-primary")
+    rec.page.click("#email")
+    rec.page.keyboard.type("x")
+    rec.page.mouse.move(900, 300)
+    rec.page.mouse.wheel(0, 300)
+    rec.page.wait_for_timeout(400)
+    scene = rec.to_scene("round-trip")     # url is already a file:/// URI, so load_scene leaves it alone
+    path = tmp_path / "round-trip.yaml"
+    dump_scene(scene, path)
+    assert load_scene(path) == scene

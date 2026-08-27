@@ -1,10 +1,11 @@
 # Plays against the bundled fixture page. Run:  uv run ck play examples/web-demo.yaml
+# A url without a scheme is read as a path relative to THIS file, so this example works in any clone.
 # Replace target.url with your product URL and re-record with:  uv run ck record web <url> -o my-scene.yaml
 version: 1
 name: web-demo
 target:
   kind: web
-  url: file:///D:/Repos/CaptureKarma/tests/fixtures/page.html
+  url: ../tests/fixtures/page.html
   viewport: [1280, 720]
 output:
   fps: 60

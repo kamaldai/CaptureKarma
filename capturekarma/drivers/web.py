@@ -135,8 +135,15 @@ class WebDriver:
         assert self.page is not None
         m = self._m()
         if target.selector is not None:
-            loc = self.page.locator(target.selector).first
-            box = loc.bounding_box() if loc.count() else None
+            from playwright.sync_api import Error as PWError
+
+            sel = target.selector
+            try:
+                loc = self.page.locator(sel).first
+                box = loc.bounding_box() if loc.count() else None
+            except PWError as exc:
+                # A malformed or engine-rejected selector is a scene problem, not a crash.
+                raise StepError(f"invalid or failing selector {sel!r}: {exc}") from exc
             if box is None:
                 raise StepError(f"element not found or not visible: {target.selector!r}")
             cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2

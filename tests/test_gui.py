@@ -100,3 +100,43 @@ def test_worker_forwards_info_logs(qapp):
         assert results == [1]
     finally:
         lib_logger.setLevel(previous)
+
+
+def _scene_yaml(name: str, out_dir: Path) -> str:
+    return (f"version: 1\nname: {name}\ntarget: {{kind: web, url: 'http://x'}}\n"
+            f"output: {{dir: '{out_dir.as_posix()}'}}\nsteps: []\n")
+
+
+def test_open_output_uses_the_selected_scenes_output_dir(qapp, tmp_path: Path, monkeypatch):
+    scene_out = tmp_path / "scene-videos"
+    (tmp_path / "a.yaml").write_text(_scene_yaml("a", scene_out), encoding="utf-8")
+    w = MainWindow(scenes_dir=tmp_path)
+    w.output_dir = tmp_path / "default-videos"
+    w.scene_list.setCurrentRow(0)
+    monkeypatch.setattr(mw, "IS_WINDOWS", True)
+    opened: list[str] = []
+    monkeypatch.setattr(os, "startfile", lambda p: opened.append(str(p)), raising=False)
+    w._open_output()
+    assert opened == [str(scene_out)] and scene_out.exists()
+
+
+def test_open_output_expands_a_tilde_in_the_scenes_output_dir(qapp, tmp_path: Path, monkeypatch):
+    (tmp_path / "a.yaml").write_text(
+        "version: 1\nname: a\ntarget: {kind: web, url: 'http://x'}\n"
+        "output: {dir: '~/Videos/CaptureKarmaTest'}\nsteps: []\n", encoding="utf-8")
+    w = MainWindow(scenes_dir=tmp_path)
+    w.scene_list.setCurrentRow(0)
+    assert w._output_dir_for_selection() == Path("~/Videos/CaptureKarmaTest").expanduser()
+
+
+def test_open_output_falls_back_to_the_default_folder(qapp, tmp_path: Path, monkeypatch):
+    """No selection, or a scene that will not load, must still open something."""
+    w = MainWindow(scenes_dir=tmp_path)
+    w.output_dir = tmp_path / "default-videos"
+    assert w._output_dir_for_selection() == w.output_dir      # nothing selected
+
+    (tmp_path / "broken.yaml").write_text("version: 2\nname: b\n", encoding="utf-8")
+    w.refresh_scenes()
+    w.scene_list.setCurrentRow(0)
+    assert w._output_dir_for_selection() == w.output_dir
+    assert "broken.yaml" in w.log_view.toPlainText()
