@@ -102,6 +102,20 @@ class ScrollStep(StepBase):
 
 
 @dataclass(frozen=True, kw_only=True)
+class DragStep(StepBase):
+    """Press, follow `path`, release. Web: viewport CSS px. Desktop: region-relative px."""
+    path: tuple[Point, ...]
+    button: Literal["left", "right", "middle"] = "left"
+
+
+@dataclass(frozen=True, kw_only=True)
+class WheelStep(StepBase):
+    """Mouse-wheel input *without* page scrolling (zooming a canvas). `by` px, positive = wheel down."""
+    by: int
+    at: StepTarget | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class TypeStep(StepBase):
     text: str
     delay: float = 0.05
@@ -117,7 +131,8 @@ class CursorStep(StepBase):
     visible: bool
 
 
-Step = Union[WaitStep, MoveStep, ClickStep, ScrollStep, TypeStep, PressStep, CursorStep]
+Step = Union[WaitStep, MoveStep, ClickStep, DragStep, ScrollStep, WheelStep, TypeStep, PressStep,
+             CursorStep]
 
 
 @dataclass(frozen=True)

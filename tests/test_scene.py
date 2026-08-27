@@ -5,8 +5,8 @@ import pytest
 import yaml
 
 from capturekarma.scene import (
-    ClickStep, CursorStep, MoveStep, PressStep, Region, SceneError, ScrollStep,
-    StepTarget, Target, TypeStep, WaitStep, dump_scene, load_scene, parse_scene, scene_to_dict,
+    ClickStep, CursorStep, DragStep, MoveStep, PressStep, Region, SceneError, ScrollStep,
+    StepTarget, Target, TypeStep, WaitStep, WheelStep, dump_scene, load_scene, parse_scene, scene_to_dict,
 )
 
 WEB = {
@@ -249,3 +249,65 @@ def test_shipped_examples_load(path: Path):
 def test_web_example_points_at_the_bundled_fixture_page():
     scene = load_scene(EXAMPLES_DIR / "web-demo.yaml")
     assert scene.target.url == FIXTURE_PAGE.resolve().as_uri()
+
+
+DRAG_WHEEL = {
+    **WEB,
+    "steps": [
+        {"drag": {"path": [[100, 100], [200, 150], [300, 100]]}},
+        {"drag": {"path": [[10, 10], [20, 20]], "button": "right", "duration": 1.5, "hold": 0.1}},
+        {"wheel": {"by": -240}},
+        {"wheel": {"by": 300, "at": [640, 400], "duration": 0.9}},
+        {"wheel": {"by": 120, "at": "#canvas"}},
+    ],
+}
+
+
+def test_parse_drag_and_wheel_steps():
+    s = parse_scene(DRAG_WHEEL)
+    assert s.steps[0] == DragStep(path=((100, 100), (200, 150), (300, 100)))
+    assert s.steps[1] == DragStep(path=((10, 10), (20, 20)), button="right", duration=1.5, hold=0.1)
+    assert s.steps[2] == WheelStep(by=-240)
+    assert s.steps[3] == WheelStep(by=300, at=StepTarget(at=(640, 400)), duration=0.9)
+    assert s.steps[4] == WheelStep(by=120, at=StepTarget(selector="#canvas"))
+
+
+def test_drag_and_wheel_round_trip(tmp_path: Path):
+    s = parse_scene(DRAG_WHEEL)
+    p = tmp_path / "dw.yaml"
+    dump_scene(s, p)
+    assert load_scene(p) == s
+    raw = yaml.safe_load(p.read_text(encoding="utf-8"))["steps"]
+    assert raw[0] == {"drag": {"path": [[100, 100], [200, 150], [300, 100]]}}
+    assert raw[1]["drag"]["button"] == "right"
+    assert raw[2] == {"wheel": {"by": -240}}
+    assert raw[3]["wheel"]["at"] == [640, 400]
+    assert raw[4]["wheel"]["at"] == "#canvas"
+
+
+@pytest.mark.parametrize("bad, msg", [
+    ({**WEB, "steps": [{"drag": {}}]}, "path"),
+    ({**WEB, "steps": [{"drag": {"path": [[1, 2]]}}]}, "at least two"),
+    ({**WEB, "steps": [{"drag": {"path": "nope"}}]}, "path"),
+    ({**WEB, "steps": [{"drag": {"path": [[1, 2], [3, "x"]]}}]}, "integers"),
+    ({**WEB, "steps": [{"drag": {"path": [[1, 2], [3, 4]], "button": "wheel"}}]}, "button"),
+    ({**WEB, "steps": [{"drag": {"path": [[1, 2], [3, 4]], "bogus": 1}}]}, "bogus"),
+    ({**WEB, "steps": [{"wheel": {}}]}, "by"),
+    ({**WEB, "steps": [{"wheel": {"by": 0}}]}, "non-zero"),
+    ({**WEB, "steps": [{"wheel": {"by": 1.5}}]}, "integer"),
+    ({**WEB, "steps": [{"wheel": {"by": True}}]}, "integer"),
+    ({**WEB, "steps": [{"wheel": {"by": 100, "bogus": 1}}]}, "bogus"),
+])
+def test_invalid_drag_and_wheel_steps(bad, msg):
+    with pytest.raises(SceneError) as ei:
+        parse_scene(bad)
+    assert msg in str(ei.value)
+
+
+def test_desktop_drag_and_wheel():
+    base = {"version": 1, "name": "d", "target": {"kind": "desktop", "window": "N"}}
+    s = parse_scene({**base, "steps": [{"drag": {"path": [[1, 2], [3, 4]]}}, {"wheel": {"by": 120, "at": [5, 6]}}]})
+    assert s.steps[0] == DragStep(path=((1, 2), (3, 4)))
+    assert s.steps[1] == WheelStep(by=120, at=StepTarget(at=(5, 6)))
+    with pytest.raises(SceneError, match="selector"):
+        parse_scene({**base, "steps": [{"wheel": {"by": 1, "at": "#c"}}]})

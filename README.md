@@ -111,6 +111,8 @@ steps:
   - wait: 1.0
   - move: {to: "text=Pricing"}   # web: selector; desktop: [x, y] region-relative
   - click: {}                    # at current pointer, or {to: ...} to move+click
+  - drag: {path: [[900, 500], [1100, 560], [1250, 500]]}   # orbit a 3D viewer: press, follow, release
+  - wheel: {by: -240, at: [1080, 540]}        # mouse wheel without scrolling the page (canvas zoom)
   - scroll: {by: 900, duration: 2.5}          # web: optional {in: "#main"}
   - type: {text: "hello@example.com", delay: 0.06}
   - press: Enter
@@ -127,14 +129,17 @@ steps:
 | `wait` | `wait: 1.5` — seconds to hold still. Long form `{seconds: 1.5}`. | — | — | `hold` (`duration` / `easing` do not apply) |
 | `move` | `{to: <target>}` — glide the cursor there along an eased Bezier path. | `to` is a Playwright selector (`"text=Pricing"`, `"#buy"`, `"[data-testid=cta]"`) or `[x, y]` in **viewport CSS px**. | `to` must be `[x, y]` **relative to the capture region's top-left**. Selectors are rejected. | `duration`, `easing`, `hold` |
 | `click` | `{}` clicks where the cursor already is; `{to: <target>}` moves there first, then clicks. `{button: left / right / middle}`, default `left`. | same as `move` | same as `move` | `duration`, `easing`, `hold` (`duration` / `easing` shape the implied move) |
+| `drag` | `{path: [[x, y], [x, y], ...]}` — press at `path[0]`, follow the polyline, release at `path[-1]`. At least two points. `{button: left / right / middle}`, default `left`. | points are **viewport CSS px** (no selectors — a drag is a gesture, not an element). | points are **relative to the capture region's top-left**. | `duration`, `easing`, `hold` |
 | `scroll` | `{by: 900}` — pixels, positive = down. Web only: `{to: 0}` scrolls to an absolute offset and `{in: "#main"}` scrolls that container instead of the page. Exactly one of `by` / `to`. | Animated in-page (`scrollTop` under `requestAnimationFrame`) — lands exactly on the target pixel. | Wheel deltas emitted per tick along the easing curve, with fractional carry-over. `to:` and `in:` are rejected. | `duration`, `easing`, `hold` |
+| `wheel` | `{by: -240}` — mouse-wheel pixels, positive = wheel down. Optional `{at: <target>}` moves the cursor there first. Unlike `scroll` this only emits wheel input: use it to zoom a canvas / 3D viewer, which does not scroll the page. | `at` is a selector or `[x, y]`; the wheel is dispatched at the cursor. | `at` must be `[x, y]`. Wheel notches via `SendInput` at the cursor. | `duration`, `easing`, `hold` |
 | `type` | `{text: "hello@example.com", delay: 0.06}` — types into whatever has focus. `delay` is the per-key pause, default `0.05`. | keyboard events via Playwright | `SendInput` keystrokes | `hold` (`delay` sets the typing speed) |
 | `press` | `press: Enter` — one key by name. Long form `{key: Tab}`. Combinations use `+`: `press: Control+a`. | Playwright key names | Win32 virtual keys | `hold` |
 | `cursor` | `cursor: hidden` or `cursor: visible` — toggle the drawn cursor mid-scene. Instant. | — | — | none — no mapping form, no `hold` |
 
 **Timing.** `duration` is how long the motion itself takes; `hold` is the pause *after* the step and defaults to
 `defaults.hold`. Omit `duration` and it is derived: a `move` from the distance and `cursor.speed`
-(`clamp(distance / speed, 0.35, 2.0)` seconds), a `scroll` from its length. `easing` is one of `linear`,
+(`clamp(distance / speed, 0.35, 2.0)` seconds), a `drag` from its total path length
+(`clamp(length / speed * 1.5, 0.6, 6.0)`), a `scroll` or a `wheel` from its length. `easing` is one of `linear`,
 `ease_in_out_cubic` (the default), `ease_out_cubic`, `ease_in_out_quint`.
 
 **Validation is strict and happens before anything launches**: unknown keys, a selector in a desktop scene,

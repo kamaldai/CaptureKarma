@@ -8,11 +8,11 @@ from typing import Any
 import yaml
 
 from .model import (
-    EASING_NAMES, ClickStep, CursorConfig, CursorStep, Defaults, MoveStep, Output, Point,
-    PressStep, Region, Scene, ScrollStep, Step, StepTarget, Target, TypeStep, WaitStep,
+    EASING_NAMES, ClickStep, CursorConfig, CursorStep, Defaults, DragStep, MoveStep, Output, Point,
+    PressStep, Region, Scene, ScrollStep, Step, StepTarget, Target, TypeStep, WaitStep, WheelStep,
 )
 
-STEP_KEYS = ("wait", "move", "click", "scroll", "type", "press", "cursor")
+STEP_KEYS = ("wait", "move", "click", "drag", "scroll", "wheel", "type", "press", "cursor")
 OVERRIDE_KEYS = ("duration", "easing", "hold")
 #: Characters Windows (and most other file systems) refuse in a file name. The scene name becomes
 #: the video's filename stem, so reject them at parse time rather than at the end of a long run.
@@ -119,6 +119,29 @@ def _parse_step(raw: Any, kind: str, idx: int) -> Step:
             raise SceneError(f"click button must be left/right/middle, got {button!r}", idx)
         to = _target(val["to"], kind, idx) if "to" in val else None
         return ClickStep(to=to, button=button, **ov)
+    if key == "drag":
+        _require_keys(val, ("path", "button") + OVERRIDE_KEYS, "drag", idx)
+        raw_path = val.get("path")
+        if not isinstance(raw_path, (list, tuple)):
+            raise SceneError(f"drag needs a 'path' list of [x, y] points, got {raw_path!r}", idx)
+        if len(raw_path) < 2:
+            raise SceneError(f"drag path needs at least two points, got {len(raw_path)}", idx)
+        path = tuple(_point(pt, "drag path point", idx) for pt in raw_path)
+        button = val.get("button", "left")
+        if button not in ("left", "right", "middle"):
+            raise SceneError(f"drag button must be left/right/middle, got {button!r}", idx)
+        return DragStep(path=path, button=button, **ov)
+    if key == "wheel":
+        _require_keys(val, ("by", "at") + OVERRIDE_KEYS, "wheel", idx)
+        if "by" not in val:
+            raise SceneError("wheel needs a 'by' number of pixels (positive = wheel down)", idx)
+        by = val["by"]
+        if not isinstance(by, int) or isinstance(by, bool):
+            raise SceneError(f"wheel 'by' must be an integer number of pixels, got {by!r}", idx)
+        if by == 0:
+            raise SceneError("wheel 'by' must be non-zero", idx)
+        at = _target(val["at"], kind, idx) if "at" in val else None
+        return WheelStep(by=by, at=at, **ov)
     if key == "scroll":
         _require_keys(val, ("by", "to", "in") + OVERRIDE_KEYS, "scroll", idx)
         has_by, has_to = "by" in val, "to" in val
@@ -257,12 +280,22 @@ def _step_to_dict(step: Step) -> dict:
     if isinstance(step, MoveStep):
         return {"move": {"to": _target_out(step.to), **ov}}
     if isinstance(step, ClickStep):
-        body: dict = {}
+        body = {}
         if step.to is not None:
             body["to"] = _target_out(step.to)
         if step.button != "left":
             body["button"] = step.button
         return {"click": {**body, **ov}}
+    if isinstance(step, DragStep):
+        body: dict = {"path": [list(p) for p in step.path]}
+        if step.button != "left":
+            body["button"] = step.button
+        return {"drag": {**body, **ov}}
+    if isinstance(step, WheelStep):
+        body = {"by": step.by}
+        if step.at is not None:
+            body["at"] = _target_out(step.at)
+        return {"wheel": {**body, **ov}}
     if isinstance(step, ScrollStep):
         body = {"by": step.by} if step.by is not None else {"to": step.to}
         if step.container is not None:
