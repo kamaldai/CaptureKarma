@@ -1,6 +1,7 @@
-# CaptureKarma Screen Capture Tool
+# CaptureKarma
 
-A comprehensive screen capture tool for creating marketing materials, tutorials, and demonstrations.
+Record a product demo once. Replay it with cinematic cursor and scroll motion. Capture to MP4.
+Every take identical.
 
 ## The Story Behind CaptureKarma
 
@@ -8,85 +9,152 @@ I developed CaptureKarma as a hobby project while working at Paracosma. Our mark
 
 As a perfectionist, I found myself frustrated with the small imperfections in these marketing materials. The jerky movements and inconsistent speeds when scrolling manually through product pages or demonstrations didn't reflect the quality of our work. This tool was born from my desire to solve this problem once and for all - creating a utility that could produce pixel-perfect scrolling captures every time.
 
-## Features
+## What changed in v2
 
--   **Region Selection**: Capture specific windows or entire monitors
--   **Screenshot Capture**: Take screenshots with a single click
--   **Video Recording**: Record high-quality videos of screen activity
--   **Scrolling Support**: Automatically scroll during capture for long pages
--   **Multiple Monitor Support**: Works with multi-monitor setups
--   **Flexible Output**: Save in various formats including PNG, MP4, and AVI
+v1 recorded the screen while sending mouse-wheel events. v2 separates **what** happens from **how it looks**:
 
-## Installation
+1. `ck record` watches you perform the flow once and writes a small YAML **scene file**.
+2. `ck play` replays that scene with eased cursor paths, pixel-deterministic scrolling and a rendered cursor
+   (with click ripples), while ffmpeg captures the region at 60 fps to H.264 MP4.
 
-### Prerequisites
+Because the scene file is plain YAML, you can fix a typo, retime a scroll or drop a step and re-render — no
+re-recording, and the result is repeatable (there is no runtime randomness in the motion).
 
--   Python 3.8 or higher
--   FFmpeg (for MP4 video conversion)
+Web targets (Chromium via Playwright) are first-class; desktop windows are supported with best-effort scrolling.
 
-### Setup
+## Install (Windows 10/11)
 
-1. Clone the repository:
+    uv sync
+    uv run playwright install chromium
+    uv run ck doctor
 
-    ```
-    git clone https://github.com/yourusername/capturekarma-screen-capture.git
-    cd capturekarma-screen-capture
-    ```
-
-2. Create and activate a virtual environment:
-
-    ```
-    python -m venv .venv
-    # On Windows:
-    .venv\Scripts\activate
-    # On macOS/Linux:
-    source .venv/bin/activate
-    ```
-
-3. Install dependencies:
-    ```
-    pip install -r requirements.txt
-    ```
+ffmpeg is bundled through `imageio-ffmpeg` — that build includes `ddagrab` (GPU desktop capture), `h264_nvenc`
+and `libx264`, so there is nothing to install by hand. A real `ffmpeg` on your `PATH` is used in preference to
+the bundled one. `ck doctor` reports what it found and how to fix anything that is missing.
 
 ## Usage
 
-Run the application:
+    uv run ck record web https://your.app/pricing -o pricing.yaml    # perform the demo, press F9 to stop
+    uv run ck play pricing.yaml                                      # MP4 lands in ~/Videos/CaptureKarma
 
+    uv run ck record desktop --window "Notepad" -o notepad.yaml      # window title, substring match
+    uv run ck play notepad.yaml --no-cursor
+
+`ck play` options:
+
+| Option | Effect |
+| --- | --- |
+| `--out-dir DIR` | Write the video somewhere other than the scene's `output.dir`. |
+| `--no-cursor` | Do not draw the cursor overlay for this run (the scene file is not modified). |
+| `--cursor-style STYLE` | Override `cursor.style`. `default` is the built-in arrow; any PNG dropped in `capturekarma/cursor/assets/` becomes a style of the same name. |
+| `--gdigrab` | Force the `gdigrab` capture path instead of `ddagrab`. |
+
+Press **F9** or **Esc** during playback to abort. ffmpeg is still finalized cleanly and the footage recorded so
+far is kept as `<name>_<timestamp>.partial.mp4`.
+
+## Scene files
+
+A scene is one YAML file per demo. `target` says what to drive, `output` / `cursor` / `defaults` say how it
+should look, and `steps` is the script. Each step is a mapping with exactly one key — the step type.
+
+```yaml
+version: 1
+name: pricing-page-demo
+target:
+  kind: web                      # web | desktop
+  url: https://app.example.com/pricing
+  viewport: [1920, 1080]
+  # desktop alternative:
+  # window: "PowerView"          # substring match on title
+  # region: [x, y, w, h]         # or explicit physical px
+output:
+  fps: 60
+  dir: ~/Videos/CaptureKarma
+  lead_in: 0.5
+  lead_out: 0.5
+cursor:
+  visible: true
+  style: default
+  ripple: true
+  speed: 1400                    # px/s nominal
+defaults:
+  easing: ease_in_out_cubic
+  hold: 0.6                      # pause after each step
+steps:
+  - wait: 1.0
+  - move: {to: "text=Pricing"}   # web: selector; desktop: [x, y] region-relative
+  - click: {}                    # at current pointer, or {to: ...} to move+click
+  - scroll: {by: 900, duration: 2.5}          # web: optional {in: "#main"}
+  - type: {text: "hello@example.com", delay: 0.06}
+  - press: Enter
+  - cursor: hidden
+  - move: {to: [640, 400], duration: 1.2}
+  - cursor: visible
+  - wait: 1.5
 ```
-python main.py
-```
 
-### Basic Workflow
+### Step types
 
-1. Select a region to capture (window or monitor)
-2. Adjust settings as needed
-3. Take a screenshot or start recording
-4. For scrolling captures, enable the scrolling option and set parameters
+| Step | Value | Web target | Desktop target | Overrides |
+| --- | --- | --- | --- | --- |
+| `wait` | `wait: 1.5` — seconds to hold still. Long form `{seconds: 1.5}`. | — | — | `hold` (`duration` / `easing` do not apply) |
+| `move` | `{to: <target>}` — glide the cursor there along an eased Bezier path. | `to` is a Playwright selector (`"text=Pricing"`, `"#buy"`, `"[data-testid=cta]"`) or `[x, y]` in **viewport CSS px**. | `to` must be `[x, y]` **relative to the capture region's top-left**. Selectors are rejected. | `duration`, `easing`, `hold` |
+| `click` | `{}` clicks where the cursor already is; `{to: <target>}` moves there first, then clicks. `{button: left / right / middle}`, default `left`. | same as `move` | same as `move` | `duration`, `easing`, `hold` (`duration` / `easing` shape the implied move) |
+| `scroll` | `{by: 900}` — pixels, positive = down. Web only: `{to: 0}` scrolls to an absolute offset and `{in: "#main"}` scrolls that container instead of the page. Exactly one of `by` / `to`. | Animated in-page (`scrollTop` under `requestAnimationFrame`) — lands exactly on the target pixel. | Wheel deltas emitted per tick along the easing curve, with fractional carry-over. `to:` and `in:` are rejected. | `duration`, `easing`, `hold` |
+| `type` | `{text: "hello@example.com", delay: 0.06}` — types into whatever has focus. `delay` is the per-key pause, default `0.05`. | keyboard events via Playwright | `SendInput` keystrokes | `hold` (`delay` sets the typing speed) |
+| `press` | `press: Enter` — one key by name. Long form `{key: Tab}`. Combinations use `+`: `press: Control+a`. | Playwright key names | Win32 virtual keys | `hold` |
+| `cursor` | `cursor: hidden` or `cursor: visible` — toggle the drawn cursor mid-scene. Instant. | — | — | none — no mapping form, no `hold` |
 
-## Project Structure
+**Timing.** `duration` is how long the motion itself takes; `hold` is the pause *after* the step and defaults to
+`defaults.hold`. Omit `duration` and it is derived: a `move` from the distance and `cursor.speed`
+(`clamp(distance / speed, 0.35, 2.0)` seconds), a `scroll` from its length. `easing` is one of `linear`,
+`ease_in_out_cubic` (the default), `ease_out_cubic`, `ease_in_out_quint`.
 
-```
-capturekarma-screen-capture/
-├── main.py                      # Entry point
-├── pyproject.toml               # Project configuration
-├── requirements.txt             # Dependencies list
-├── README.md                    # Documentation
-└── CaptureKarma/                # Main package
-    ├── ui/                      # UI-related code
-    │   ├── main_window.py       # Main window UI
-    │   ├── capture_tab.py       # Capture tab UI components
-    │   └── settings_tab.py      # Settings tab UI components
-    ├── capture/                 # Capture functionality
-    │   ├── screenshot.py        # Screenshot logic
-    │   ├── recording.py         # Video recording logic
-    │   └── region.py            # Region selection logic
-    └── utils/                   # Utility functions
-        ├── image_processing.py  # Image processing utilities
-        └── scrolling.py         # Scrolling utilities
-```
+**Validation is strict and happens before anything launches**: unknown keys, a selector in a desktop scene,
+`scroll in:` in a desktop scene, a negative duration or a capture region spanning two monitors all fail
+immediately, quoting the step number.
+
+## Output
+
+Everything lands in `output.dir` (default `~/Videos/CaptureKarma`, override with `--out-dir`) and nothing is
+ever overwritten — names are timestamped.
+
+| File | What it is |
+| --- | --- |
+| `<name>_<timestamp>.mp4` | The video: H.264, native resolution of the capture region, 60 fps, `+faststart`. NVENC when available, `libx264` otherwise. |
+| `<name>_<timestamp>.cursor.json` | Per-tick cursor timeline (position, visibility, clicks) for later post-processing. |
+| `<name>_<timestamp>.partial.mp4` | Written instead of the `.mp4` when you abort with F9 / Esc. |
+| `<name>_<timestamp>.error.png` | Screenshot taken when a step fails — selector not found, and so on. |
+
+For web scenes the video contains the viewport only: no browser chrome, and no OS cursor (the real cursor is
+excluded with `draw_mouse=0` — the one you see is the rendered overlay).
+
+## Limitations
+
+- **Windows 10/11 only.** Capture uses `ddagrab` / `gdigrab` and input uses Win32.
+- **Keyboard shortcuts are not recorded as shortcuts.** Both recorders currently log Ctrl / Alt / Win + key as
+  plain typing. Edit the scene afterwards and replace those steps with `press: Control+a` style steps.
+- **Desktop scrolling is best-effort.** It is wheel-event emulation, so how smooth it looks is up to the target
+  app's own scroll animation. Web scrolling is exact — prefer a web scene when you have the choice.
+- **Web element targets must be on screen** when they are used; add a `scroll` step first (the recorder does
+  this for you).
+- **Rotated / portrait monitors fall back to `gdigrab`** automatically, because `ddagrab` cannot capture them.
+  `--gdigrab` forces the same path anywhere else.
+- **MP4 (H.264) is the only output.** No WebM or GIF, and no auto-zoom, device frames or captions — the
+  `.cursor.json` timeline exists so those can be added later as a post-pass.
+- **The CLI is `ck`.** A PySide6 GUI over the same library comes with the GUI.
+
+## Development
+
+    uv run pytest -q                                  # pure tests
+    uv run pytest -q -m "win32 or integration"        # everything, needs a desktop + Chromium
+
+The Windows-only end-to-end test checks the finished MP4 with `ffprobe`, which is *not* part of the bundled
+`imageio-ffmpeg` build — install a full ffmpeg on `PATH` if you want to run it. Nothing else needs `ffprobe`.
+
+See `CLAUDE.md` for the package layout and the conventions that keep the code honest: physical pixels
+everywhere, dumb drivers, no swallowed exceptions.
 
 ## License
 
-["Don't Be A Dick" Public License](LICENSE)
-
-This project is licensed under the DBAD license - do whatever you want with the code, just don't be a dick about it.
+["Don't Be A Dick" Public License](LICENSE) — do whatever you want with the code, just don't be a dick about it.
