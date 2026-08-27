@@ -93,6 +93,10 @@ class ScreenCapture:
                     self._proc.wait(timeout=3.0)
                 except subprocess.TimeoutExpired:
                     self._proc.kill()
+                    # A kill cannot be refused; reap it so returncode is settled and the OS has
+                    # released the output file before the checks below. A timeout here is pathological
+                    # (unkillable process) and must surface, so TimeoutExpired is left to propagate.
+                    self._proc.wait(timeout=3.0)
         for t in self._threads:
             t.join(timeout=2.0)
         if expect_output and (not self.out_path.exists() or self.out_path.stat().st_size == 0):
