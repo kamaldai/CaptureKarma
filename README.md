@@ -40,6 +40,9 @@ the bundled one. `ck doctor` reports what it found and how to fix anything that 
     uv run ck record desktop --window "Notepad" -o notepad.yaml      # window title, substring match
     uv run ck play notepad.yaml --no-cursor
 
+`ck record web` also takes `--viewport WxH` (browser viewport, default `1920x1080`) and `--name NAME` (the scene
+name, and so the video's filename stem); `ck record desktop` takes `--name NAME`.
+
 `ck play` options:
 
 | Option | Effect |
@@ -142,7 +145,7 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
   `--gdigrab` forces the same path anywhere else.
 - **MP4 (H.264) is the only output.** No WebM or GIF, and no auto-zoom, device frames or captions — the
   `.cursor.json` timeline exists so those can be added later as a post-pass.
-- **The CLI is `ck`.** A PySide6 GUI over the same library comes with the GUI.
+- **The command-line entry point is `ck`.**
 
 ## Development
 
