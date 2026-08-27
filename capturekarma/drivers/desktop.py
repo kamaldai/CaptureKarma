@@ -8,7 +8,7 @@ from typing import Any
 
 from capturekarma.motion.easing import Easing
 from capturekarma.motion.ticker import Ticker
-from capturekarma.scene.model import Point, Region, Scene, ScrollStep, StepTarget
+from capturekarma.scene.model import Point, Region, Scene, ScrollStep, StepTarget, WheelStep
 
 from . import win_input
 from .base import DriverError, StepError
@@ -57,8 +57,15 @@ class DesktopDriver:
     def smooth_scroll(self, step: ScrollStep, duration: float, easing: Easing) -> None:
         if step.by is None:
             raise StepError("desktop scroll needs 'by'")
+        self._wheel_over(step.by, duration, easing)
+
+    def smooth_wheel(self, step: WheelStep, duration: float, easing: Easing) -> None:
+        # Windows cannot tell a canvas zoom from a page scroll: both are wheel notches at the cursor.
+        self._wheel_over(step.by, duration, easing)
+
+    def _wheel_over(self, pixels: int, duration: float, easing: Easing) -> None:
         n = self._ticker.n_ticks(duration)
-        deltas = list(win_input.wheel_steps(step.by, n, easing))
+        deltas = list(win_input.wheel_steps(pixels, n, easing))
         for (i, _), delta in zip(self._ticker.ticks(duration), deltas):
             self._in.wheel(delta)
 

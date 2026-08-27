@@ -3,7 +3,7 @@ import pytest
 from capturekarma.drivers.base import DriverError, StepError
 from capturekarma.drivers.web import WebDriver
 from capturekarma.motion.easing import get_easing
-from capturekarma.scene.model import Scene, ScrollStep, StepTarget, Target
+from capturekarma.scene.model import Scene, ScrollStep, StepTarget, Target, WheelStep
 
 pytestmark = pytest.mark.integration
 
@@ -115,3 +115,34 @@ def test_setup_bad_url_raises_driver_error_and_tears_down():
 def test_malformed_selector_raises_step_error_not_a_playwright_error(driver):
     with pytest.raises(StepError, match="invalid or failing selector"):
         driver.resolve(StepTarget(selector="#btn-primary >>> :::"))
+
+
+def _stage_box(driver):
+    return driver.page.locator("#stage").bounding_box()
+
+
+def test_smooth_wheel_zooms_the_canvas_without_scrolling_the_page(driver):
+    box = _stage_box(driver)
+    driver.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    driver.smooth_wheel(WheelStep(by=-240), duration=0.3, easing=get_easing("ease_in_out_cubic"))
+    assert driver.page.evaluate("window.__stage.wheel") == -240
+    assert driver.page.evaluate("window.scrollY") == 0      # the canvas swallowed every wheel event
+
+
+def test_smooth_wheel_deltas_sum_exactly_under_every_easing(driver):
+    for name in ("linear", "ease_in_out_cubic", "ease_out_cubic", "ease_in_out_quint"):
+        driver.page.evaluate("window.__stage.wheel = 0")
+        box = _stage_box(driver)
+        driver.page.mouse.move(box["x"] + 10, box["y"] + 10)
+        driver.smooth_wheel(WheelStep(by=137), duration=0.2, easing=get_easing(name))
+        assert driver.page.evaluate("window.__stage.wheel") == 137, name
+
+
+def test_smooth_wheel_emits_several_events_over_its_duration(driver):
+    driver.page.evaluate("window.__stage.events = 0;"
+                         "document.querySelector('#stage').addEventListener("
+                         "'wheel', () => { window.__stage.events += 1; }, {passive: true})")
+    box = _stage_box(driver)
+    driver.page.mouse.move(box["x"] + 20, box["y"] + 20)
+    driver.smooth_wheel(WheelStep(by=600), duration=0.5, easing=get_easing("linear"))
+    assert driver.page.evaluate("window.__stage.events") >= 10    # ~30 Hz over 0.5 s, minus zero deltas

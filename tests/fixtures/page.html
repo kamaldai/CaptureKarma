@@ -13,6 +13,9 @@
   #box { margin: 24px; width: 300px; height: 200px; overflow-y: auto; border: 2px solid #334155; background: #fff; }
   #box .inner { height: 1500px; background: repeating-linear-gradient(#fff 0 49px, #e2e8f0 49px 50px); }
   #deep { position: absolute; top: 3000px; left: 24px; }
+  /* Out of flow on purpose: adding the canvas must not move #box or the button row. */
+  #stage { position: absolute; top: 420px; left: 340px; border: 2px solid #0f172a;
+           background: #0f172a; touch-action: none; }
 </style>
 </head>
 <body>
@@ -24,7 +27,42 @@
   <input id="email" type="email" placeholder="email">
   <input id="pw" type="password" placeholder="password">
 </div>
+<div class="row">
+  <!-- No id, no class, no aria-label, and a label that spans two lines: the recorder has to fall
+       back to :has-text() and must normalise the whitespace it reads out of innerText. -->
+  <button><span>3</span><br>Steps</button>
+</div>
 <div id="box"><div class="inner"></div></div>
 <button id="deep">Deep Button</button>
+<canvas id="stage" width="600" height="160"></canvas>
+<script>
+  // A stand-in for a 3D product viewer: it orbits on drag, zooms on wheel, and never lets the
+  // page scroll while the pointer is over it (preventDefault on wheel).
+  (() => {
+    const stage = document.getElementById("stage");
+    const state = { drags: [], wheel: 0, dx: 0, dy: 0 };
+    window.__stage = state;
+    let active = null;
+    const pt = e => [Math.round(e.clientX), Math.round(e.clientY)];
+    stage.addEventListener("pointerdown", e => {
+      active = [pt(e)];
+      stage.setPointerCapture(e.pointerId);
+    });
+    stage.addEventListener("pointermove", e => {
+      if (!active) return;
+      const [lx, ly] = active[active.length - 1];
+      const [x, y] = pt(e);
+      state.dx += x - lx;
+      state.dy += y - ly;
+      active.push([x, y]);
+    });
+    stage.addEventListener("pointerup", e => {
+      if (!active) return;
+      state.drags.push(active);
+      active = null;
+    });
+    stage.addEventListener("wheel", e => { e.preventDefault(); state.wheel += e.deltaY; }, { passive: false });
+  })();
+</script>
 </body>
 </html>

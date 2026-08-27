@@ -11,9 +11,12 @@ from typing import Callable
 
 from capturekarma._win import high_res_timer, set_dpi_awareness
 from capturekarma.drivers.base import Driver, StepError
-from capturekarma.motion import Ticker, bezier_path, get_easing, move_duration, scroll_duration
+from capturekarma.motion import (
+    Ticker, bezier_path, drag_duration, get_easing, move_duration, polyline_path, scroll_duration,
+)
 from capturekarma.scene.model import (
-    ClickStep, CursorStep, MoveStep, Point, PressStep, Region, Scene, ScrollStep, Step, TypeStep, WaitStep,
+    ClickStep, CursorStep, DragStep, MoveStep, Point, PressStep, Region, Scene, ScrollStep, Step,
+    StepTarget, TypeStep, WaitStep, WheelStep,
 )
 
 from .timeline import CursorTimeline
@@ -141,6 +144,28 @@ class Player:
         self.ticker.wait(0.08)
         self.driver.mouse_up(step.button)
 
+    def _drag(self, step: DragStep) -> None:
+        """Move to path[0], press, follow the polyline over `duration`, release."""
+        path = [self._region_point(pt) for pt in step.path]
+        self._move(path[0], step)
+        length = sum(math.dist(a, b) for a, b in zip(path, path[1:]))
+        duration = (step.duration if step.duration is not None
+                    else drag_duration(length, self.scene.cursor.speed))
+        self.driver.mouse_down(step.button)
+        self._overlay.click()
+        self._sample(click=True)
+        n = self.ticker.n_ticks(duration)
+        pts = polyline_path(path, n, self._easing(step))
+        for (i, _), pt in zip(self.ticker.ticks(duration), pts):
+            self._check_abort()   # a long drag must still abort promptly, not only between steps
+            self._set_pointer(pt)
+            self._sample()
+        self.driver.mouse_up(step.button)
+
+    def _region_point(self, pt: Point) -> Point:
+        """A scene-space drag point (web: viewport CSS px, desktop: region-relative) in screen px."""
+        return self.driver.resolve(StepTarget(at=pt))
+
     def _run_step(self, idx: int, step: Step) -> None:
         if isinstance(step, WaitStep):
             self._hold(step.seconds)
@@ -150,6 +175,14 @@ class Player:
             if step.to is not None:
                 self._move(self.driver.resolve(step.to), step)
             self._click(step)
+        elif isinstance(step, DragStep):
+            self._drag(step)
+        elif isinstance(step, WheelStep):
+            if step.at is not None:
+                self._move(self.driver.resolve(step.at), step)
+            duration = step.duration if step.duration is not None else scroll_duration(step.by)
+            self.driver.smooth_wheel(step, duration, self._easing(step))
+            self._sample()
         elif isinstance(step, ScrollStep):
             px = step.by if step.by is not None else (step.to or 0)
             duration = step.duration if step.duration is not None else scroll_duration(px)

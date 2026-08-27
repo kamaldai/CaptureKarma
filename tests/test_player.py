@@ -58,6 +58,9 @@ class FakeDriver:
     def smooth_scroll(self, step, duration, easing):
         self.calls.append(("scroll", step.by, step.to, round(duration, 3)))
         self.clock.sleep(duration)   # a real driver blocks for the scroll's duration
+    def smooth_wheel(self, step, duration, easing):
+        self.calls.append(("wheel", step.by, round(duration, 3)))
+        self.clock.sleep(duration)   # a real driver blocks for the wheel's duration
     def type_text(self, text, delay):
         self.calls.append(("type", text, delay))
         if self.fail_type:
@@ -314,3 +317,101 @@ def test_driver_setup_failure_still_tears_the_driver_down(tmp_path):
         p.run()
     assert ovs == [] and caps == []                # nothing was started
     assert drv.calls == [("setup",), ("teardown",)]
+
+
+DRAG_SCENE = {
+    **SCENE, "defaults": {"hold": 0.2},
+    "steps": [{"drag": {"path": [[100, 100], [200, 100], [200, 200]], "duration": 0.5}}],
+}
+
+
+def test_drag_moves_presses_traverses_and_releases(tmp_path):
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=DRAG_SCENE)
+    p.run()
+    kinds = [c[0] for c in drv.calls]
+    assert kinds.count("down") == 1 and kinds.count("up") == 1
+    down, up = kinds.index("down"), kinds.index("up")
+    assert drv.calls[down] == ("down", "left") and drv.calls[up] == ("up", "left")
+    # the cursor is moved to path[0] before the press ...
+    assert drv.calls[down - 1] == ("pos", 200, 200)             # region origin (100,100) + (100,100)
+    # ... then traverses the polyline over `duration` (0.5 s at 10 Hz = 5 ticks) and ends at path[-1]
+    traversal = [c for c in drv.calls[down:up] if c[0] == "pos"]
+    assert len(traversal) >= 5
+    assert traversal[-1] == ("pos", 300, 300)                   # region origin + (200, 200)
+    assert ovs[0].clicks == 1                                   # ripple on press
+    assert ovs[0].positions[-1] == (300, 300)
+
+
+def test_drag_samples_the_timeline_per_tick_with_a_click_on_the_press(tmp_path):
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=DRAG_SCENE)
+    res = p.run()
+    samples = json.loads(res.timeline.read_text())["samples"]
+    assert sum(1 for s in samples if s[4]) == 1                 # exactly one click sample: the press
+    assert samples[-1][1:3] == [300, 300]
+
+
+def test_drag_default_duration_comes_from_the_path_length(tmp_path):
+    scene = {**SCENE, "cursor": {"speed": 1000}, "defaults": {"hold": 0},
+             "output": {"fps": 60, "lead_in": 0, "lead_out": 0},
+             "steps": [{"drag": {"path": [[0, 0], [1000, 0]]}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    p.run()
+    down = [i for i, c in enumerate(drv.calls) if c[0] == "down"][0]
+    up = [i for i, c in enumerate(drv.calls) if c[0] == "up"][0]
+    # 1000 px / 1000 px/s * 1.5 = 1.5 s -> 15 ticks at 10 Hz
+    assert len([c for c in drv.calls[down:up] if c[0] == "pos"]) == 15
+
+
+def test_drag_can_be_aborted_mid_traversal(tmp_path):
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=DRAG_SCENE)
+    seen = {"n": 0}
+
+    def stop_during_drag(n):
+        if any(c[0] == "down" for c in drv.calls):
+            seen["n"] += 1
+            if seen["n"] >= 2:
+                p.stop_event.set()
+
+    drv.on_pointer = stop_during_drag
+    res = p.run()
+    assert res.partial is True
+    assert not any(c[0] == "up" for c in drv.calls)      # aborted before the release
+    assert drv.calls[-1] == ("teardown",)
+
+
+def test_wheel_step_calls_smooth_wheel(tmp_path):
+    scene = {**SCENE, "defaults": {"hold": 0}, "output": {"fps": 60, "lead_in": 0, "lead_out": 0},
+             "steps": [{"wheel": {"by": -900}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    p.run()
+    assert ("wheel", -900, 1.0) in drv.calls             # 900 px / 900 px/s = 1.0 s
+    # calls[0] is setup, calls[1] the initial centring: no `at` means no move of our own after that
+    assert not any(c[0] == "pos" for c in drv.calls[2:])
+
+
+def test_wheel_at_moves_first(tmp_path):
+    scene = {**SCENE, "defaults": {"hold": 0}, "output": {"fps": 60, "lead_in": 0, "lead_out": 0},
+             "steps": [{"wheel": {"by": 300, "at": [50, 60], "duration": 0.4}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    p.run()
+    wheel = [i for i, c in enumerate(drv.calls) if c[0] == "wheel"][0]
+    assert drv.calls[wheel] == ("wheel", 300, 0.4)
+    assert drv.calls[wheel - 1] == ("pos", 150, 160)     # region origin (100,100) + (50,60)
+
+
+def test_wheel_at_selector_resolves_through_the_driver(tmp_path):
+    scene = {**SCENE, "defaults": {"hold": 0}, "output": {"fps": 60, "lead_in": 0, "lead_out": 0},
+             "steps": [{"wheel": {"by": 300, "at": "#canvas"}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    p.run()
+    wheel = [i for i, c in enumerate(drv.calls) if c[0] == "wheel"][0]
+    assert drv.calls[wheel - 1] == ("pos", 500, 400)     # FakeDriver resolves any selector to region centre
+
+
+def test_wheel_selector_failure_becomes_a_step_error(tmp_path):
+    scene = {**SCENE, "steps": [{"wheel": {"by": 300, "at": "#missing"}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    drv.fail_on_selector = "#missing"
+    with pytest.raises(StepError) as ei:
+        p.run()
+    assert ei.value.step_index == 0

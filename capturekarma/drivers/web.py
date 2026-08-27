@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from capturekarma.motion.easing import EASINGS, Easing
-from capturekarma.scene.model import Point, Region, Scene, ScrollStep, StepTarget
+from capturekarma.motion.ticker import Ticker
+from capturekarma.scene.model import Point, Region, Scene, ScrollStep, StepTarget, WheelStep
 
 from .base import DriverError, StepError
 
@@ -59,9 +60,14 @@ class ViewportMetrics:
 
 
 class WebDriver:
-    def __init__(self, headless: bool = False, window_pos: Point = (0, 0)):
+    #: Wheel events are emitted at this rate during a `wheel` step: fast enough to look continuous,
+    #: slow enough that a viewer's own zoom easing keeps up.
+    WHEEL_HZ = 30
+
+    def __init__(self, headless: bool = False, window_pos: Point = (0, 0), ticker: Ticker | None = None):
         self._headless = headless
         self._window_pos = window_pos
+        self._ticker = ticker or Ticker(hz=self.WHEEL_HZ)
         self._pw = None
         self._browser = None
         self._context = None
@@ -186,6 +192,24 @@ class WebDriver:
                 [step.container, step.by, step.to, int(duration * 1000), name])
         except Exception as exc:  # Playwright Error wraps the JS rejection
             raise StepError(f"scroll failed: {exc}") from exc
+
+    def smooth_wheel(self, step: WheelStep, duration: float, easing: Easing) -> None:
+        """Emit wheel deltas at the *current* virtual mouse position (Playwright semantics).
+
+        The player has already moved the cursor there, so this only paces the deltas. They are
+        quantised with carry-over so they sum to exactly `step.by` however the easing distributes
+        them - the same technique as `win_input.wheel_steps`, but in pixels with no unit conversion.
+        """
+        assert self.page is not None
+        n = self._ticker.n_ticks(duration)
+        emitted = 0
+        for i, _ in self._ticker.ticks(duration):
+            target = round(step.by * easing(i / n))
+            delta, emitted = target - emitted, target
+            if delta:
+                self.page.mouse.wheel(0, delta)
+        if emitted != step.by:   # an easing that does not end at exactly 1.0 must not lose pixels
+            self.page.mouse.wheel(0, step.by - emitted)
 
     def type_text(self, text: str, delay: float) -> None:
         assert self.page is not None

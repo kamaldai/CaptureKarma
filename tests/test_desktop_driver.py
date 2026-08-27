@@ -116,3 +116,14 @@ def test_press_reports_an_unknown_key_as_a_step_error():
     with pytest.raises(StepError, match="Hyper"):
         d.press("Hyper")
     d.press("Enter")                        # a good key still goes through
+
+
+def test_smooth_wheel_emits_notches_summing_to_the_pixel_total():
+    from capturekarma.scene.model import WheelStep
+
+    d, fi = _driver()
+    d.setup(Scene(name="t", target=Target(kind="desktop", window="Notepad"), steps=()))
+    d.smooth_wheel(WheelStep(by=-300), duration=0.5, easing=get_easing("linear"))
+    deltas = [c[1] for c in fi.calls if c[0] == "wheel"]
+    # 300 px up == +3 notches == +360 wheel units, spread over 5 ticks at 10 Hz
+    assert len(deltas) == 5 and sum(deltas) == 360
