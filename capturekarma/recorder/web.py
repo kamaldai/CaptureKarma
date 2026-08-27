@@ -61,6 +61,11 @@ class WebRecorder:
         self._context.expose_binding("__ck_event", self._on_event)
         self._context.add_init_script(RECORDER_JS)
         self.page = self._context.new_page()
+        if not self._headless:
+            # Headed Chromium sizes the window, not the viewport: pin the page's inner size to the
+            # requested viewport so `at:` coordinates recorded here match the driver on playback.
+            from capturekarma.drivers.web import fit_window_to_viewport
+            fit_window_to_viewport(self.page, self._context, w, h)
         self.page.on("close", lambda _p: self._closed.set())
         self.page.on("framenavigated",
                      lambda f: f.parent_frame is None and self.events.append(
