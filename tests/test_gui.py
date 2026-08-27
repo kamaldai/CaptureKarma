@@ -140,3 +140,56 @@ def test_open_output_falls_back_to_the_default_folder(qapp, tmp_path: Path, monk
     w.scene_list.setCurrentRow(0)
     assert w._output_dir_for_selection() == w.output_dir
     assert "broken.yaml" in w.log_view.toPlainText()
+
+
+def test_install_file_log_writes_library_logs_to_a_rotating_file(tmp_path: Path):
+    from capturekarma.gui.app import install_file_log
+
+    lib_logger = logging.getLogger("capturekarma")
+    before = list(lib_logger.handlers)
+    try:
+        path = install_file_log(tmp_path)
+        assert path == tmp_path / "capturekarma.log"
+        handler = next(h for h in lib_logger.handlers if getattr(h, "baseFilename", None) == str(path))
+        assert handler.maxBytes == 1_000_000 and handler.backupCount == 3
+        assert handler.level == logging.INFO
+
+        logging.getLogger("capturekarma.player").info("step 3/9: DragStep")
+        logging.getLogger("capturekarma.player").debug("chatter")
+        handler.flush()
+        text = path.read_text(encoding="utf-8")
+        assert "step 3/9: DragStep" in text and "chatter" not in text
+
+        assert install_file_log(tmp_path) == path          # idempotent: no duplicate handler
+        assert sum(1 for h in lib_logger.handlers if getattr(h, "baseFilename", None) == str(path)) == 1
+    finally:
+        for h in list(lib_logger.handlers):
+            if h not in before:
+                h.close()
+                lib_logger.removeHandler(h)
+
+
+def test_install_file_log_survives_an_unwritable_directory(tmp_path: Path, monkeypatch):
+    from capturekarma.gui import app as app_mod
+
+    def boom(*a, **kw):
+        raise OSError("access is denied")
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+    assert app_mod.install_file_log(tmp_path / "nope") is None
+
+
+def test_worker_failure_message_names_the_type_and_the_failing_step(qapp):
+    from capturekarma.drivers.base import StepError
+
+    failures: list[str] = []
+
+    def job():
+        raise StepError("element not found: '#missing'", step_index=4)
+
+    worker = Worker(job)
+    worker.failed.connect(failures.append)
+    worker.start()
+    assert worker.wait(5000)
+    qapp.processEvents()
+    assert failures == ["StepError: step 5: element not found: '#missing'"]

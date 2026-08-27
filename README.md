@@ -157,6 +157,7 @@ ever overwritten — names are timestamped.
 | `<name>_<timestamp>.cursor.json` | Per-tick cursor timeline (position, visibility, clicks) for later post-processing. |
 | `<name>_<timestamp>.partial.mp4` | Written instead of the `.mp4` when you abort with F9 / Esc. |
 | `<name>_<timestamp>.error.png` | Screenshot taken when a step fails — selector not found, and so on. |
+| `capturekarma.log` | Rolling log of every GUI session (1 MB × 3). Written by `ck-gui` only; the CLI logs to the console. |
 
 For web scenes the video contains the viewport only: no browser chrome, and no OS cursor (the real cursor is
 excluded with `draw_mouse=0` — the one you see is the rendered overlay).
@@ -194,6 +195,14 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
 - **MP4 (H.264) is the only output.** No WebM or GIF, and no auto-zoom, device frames or captions — the
   `.cursor.json` timeline exists so those can be added later as a post-pass.
 - **The command-line entry point is `ck`.**
+
+## Troubleshooting
+
+The GUI writes everything it logs to `~/Videos/CaptureKarma/capturekarma.log` (1 MB, three
+generations), so a run that failed yesterday can still be diagnosed today: it has the step numbers,
+the selector that could not be found, the capture command line and the measured viewport. When a
+take fails, the log panel shows `StepError: step 12: element not found: ...` — the same line is in
+the file. Open the scene file, count to that step, and fix or delete it.
 
 ## Development
 
