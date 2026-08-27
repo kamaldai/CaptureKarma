@@ -160,8 +160,12 @@ class Player:
         elif isinstance(step, PressStep):
             self.driver.press(step.key)
         elif isinstance(step, CursorStep):
-            self._visible = step.visible
-            self._overlay.set_visible(step.visible)
+            if self.options.cursor_visible is not None:
+                # An explicit cursor_visible pins the cursor for the whole run; scene toggles defer to it.
+                log.debug("cursor step ignored: visibility pinned by options")
+            else:
+                self._visible = step.visible
+                self._overlay.set_visible(step.visible)
             self._sample()
             return  # no hold after a visibility toggle
         self._hold(self._hold_for(step))
@@ -177,11 +181,13 @@ class Player:
         video = out(".mp4")
         style = self.options.cursor_style or self.scene.cursor.style
 
-        region = self.driver.setup(self.scene)
+        region: Region | None = None
         capture = None
         partial = False
         error: BaseException | None = None
+        timeline: Path | None = None
         try:
+            region = self.driver.setup(self.scene)
             self._overlay = self._overlay_factory(style, self.scene.cursor.ripple, self._visible)
             self._overlay.start()
             self._pointer = region.center
@@ -192,6 +198,7 @@ class Player:
                 self._t0 = self._clock()
                 self._hold(self.scene.output.lead_in)
                 for idx, step in enumerate(self.scene.steps):
+                    self._check_abort()  # blocking steps (scroll, type) can only be aborted between steps
                     log.info("step %d/%d: %s", idx + 1, len(self.scene.steps), type(step).__name__)
                     try:
                         self._run_step(idx, step)
@@ -225,11 +232,30 @@ class Player:
                     log.error("stopping capture failed: %s", cap_exc)
                     if error is None:
                         error = cap_exc
+            if region is not None:
+                # Abort and error runs get a companion timeline too: it is the record of what was played.
+                try:
+                    timeline = self.timeline.dump(out(".cursor.json"), region, self.ticker.hz)
+                except Exception as tl_exc:  # noqa: BLE001 - never mask the original error
+                    log.error("writing cursor timeline failed: %s", tl_exc)
+                    if error is None:
+                        error = tl_exc
             if self._overlay is not None:
-                self._overlay.stop()
-            self.driver.teardown()
+                try:
+                    self._overlay.stop()
+                except Exception as ov_exc:  # noqa: BLE001 - never mask the original error, and never skip teardown
+                    log.error("overlay stop failed: %s", ov_exc)
+                    if error is None:
+                        error = ov_exc
+            try:
+                self.driver.teardown()
+            except Exception as td_exc:  # noqa: BLE001 - never mask the original error
+                log.error("driver teardown failed: %s", td_exc)
+                if error is None:
+                    error = td_exc
         if error is not None:
             raise error
-        timeline = self.timeline.dump(out(".cursor.json"), region, self.ticker.hz)
+        if timeline is None:  # unreachable: on a non-error path region is set and the dump succeeded
+            raise RuntimeError("cursor timeline was not written")
         log.info("saved %s (%.1fs, %d frames)", video, duration, frames)
         return RunResult(video=video, timeline=timeline, partial=partial, duration=duration, frames=frames)
