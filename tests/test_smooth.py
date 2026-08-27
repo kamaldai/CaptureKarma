@@ -122,3 +122,25 @@ def test_wheel_never_merges_into_a_scroll():
           RawEvent(t=0.20, kind="wheel", delta=-120, at=(10, 10))]
     steps = smooth(ev)
     assert steps == [ScrollStep(by=100), WheelStep(by=-120, at=StepTarget(at=(10, 10)))]
+
+
+def test_a_drag_consumes_its_own_span_so_no_spurious_wait_follows():
+    """A drag is stamped at the press but occupies press-to-release; only the remainder is a gap."""
+    steps = smooth([RawEvent(t=1.0, kind="drag", path=((0, 0), (50, 50)), duration=2.0),
+                    RawEvent(t=3.2, kind="click", at=(9, 9))])
+    assert steps == [WaitStep(seconds=1.0),                             # the 1.0 s before the drag
+                     MoveStep(to=StepTarget(at=(0, 0))),
+                     DragStep(path=((0, 0), (50, 50)), duration=2.0),
+                     MoveStep(to=StepTarget(at=(9, 9))), ClickStep()]   # 0.2 s left over: dropped
+
+
+def test_a_real_pause_after_a_drag_is_still_a_wait():
+    steps = smooth([RawEvent(t=1.0, kind="drag", path=((0, 0), (50, 50)), duration=2.0),
+                    RawEvent(t=6.0, kind="click", at=(9, 9))])
+    assert steps[3] == WaitStep(seconds=2.0)             # 3.0 s left over, capped
+
+
+def test_the_first_wait_is_capped_at_max_first_wait():
+    """Uncapped it would turn time spent getting set up into half the video."""
+    steps = smooth([RawEvent(t=45.0, kind="click", at=(1, 1))])
+    assert steps[0] == WaitStep(seconds=30.0)

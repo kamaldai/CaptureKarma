@@ -5,7 +5,7 @@ import datetime as _dt
 import logging
 import math
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -147,20 +147,29 @@ class Player:
     def _drag(self, step: DragStep) -> None:
         """Move to path[0], press, follow the polyline over `duration`, release."""
         path = [self._region_point(pt) for pt in step.path]
-        self._move(path[0], step)
+        # The approach is an ordinary move: its duration comes from the distance, never from the
+        # step's own `duration`, which pays for the traversal. smooth() always emits
+        # Move(to=path[0]) immediately before a drag, so the pointer is normally already there -
+        # reusing the drag's duration made the player sit frozen for it before pressing.
+        if self._pointer != path[0]:
+            self._move(path[0], replace(step, duration=None))
         length = sum(math.dist(a, b) for a, b in zip(path, path[1:]))
         duration = (step.duration if step.duration is not None
                     else drag_duration(length, self.scene.cursor.speed))
         self.driver.mouse_down(step.button)
-        self._overlay.click()
-        self._sample(click=True)
-        n = self.ticker.n_ticks(duration)
-        pts = polyline_path(path, n, self._easing(step))
-        for (i, _), pt in zip(self.ticker.ticks(duration), pts):
-            self._check_abort()   # a long drag must still abort promptly, not only between steps
-            self._set_pointer(pt)
-            self._sample()
-        self.driver.mouse_up(step.button)
+        try:
+            self._overlay.click()
+            self._sample(click=True)
+            n = self.ticker.n_ticks(duration)
+            pts = polyline_path(path, n, self._easing(step))
+            for (i, _), pt in zip(self.ticker.ticks(duration), pts):
+                self._check_abort()   # a long drag must still abort promptly, not only between steps
+                self._set_pointer(pt)
+                self._sample()
+        finally:
+            # An abort (or a driver error) mid-traversal must never leave the button held down:
+            # the next run would inherit a stuck press, and on desktop so would the user's session.
+            self.driver.mouse_up(step.button)
 
     def _region_point(self, pt: Point) -> Point:
         """A scene-space drag point (web: viewport CSS px, desktop: region-relative) in screen px."""

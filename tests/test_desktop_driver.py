@@ -127,3 +127,24 @@ def test_smooth_wheel_emits_notches_summing_to_the_pixel_total():
     deltas = [c[1] for c in fi.calls if c[0] == "wheel"]
     # 300 px up == +3 notches == +360 wheel units, spread over 5 ticks at 10 Hz
     assert len(deltas) == 5 and sum(deltas) == 360
+
+
+def test_teardown_releases_a_button_left_held_by_an_interrupted_drag():
+    d, fi = _driver()
+    d.setup(Scene(name="t", target=Target(kind="desktop", window="Notepad"), steps=()))
+    d.mouse_down("left")
+    d.mouse_down("right")
+    d.mouse_up("left")
+    fi.calls.clear()
+    d.teardown()
+    assert fi.calls == [("btn", "right", False)]      # only the still-held button is released
+
+
+def test_teardown_releases_nothing_when_every_press_was_matched():
+    d, fi = _driver()
+    d.setup(Scene(name="t", target=Target(kind="desktop", window="Notepad"), steps=()))
+    d.mouse_down()
+    d.mouse_up()
+    fi.calls.clear()
+    d.teardown()
+    assert fi.calls == []

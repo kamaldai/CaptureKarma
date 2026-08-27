@@ -362,7 +362,8 @@ def test_drag_default_duration_comes_from_the_path_length(tmp_path):
     assert len([c for c in drv.calls[down:up] if c[0] == "pos"]) == 15
 
 
-def test_drag_can_be_aborted_mid_traversal(tmp_path):
+def test_drag_aborted_mid_traversal_still_releases_the_button(tmp_path):
+    """An abort must never leave the button held: the next run would inherit a stuck press."""
     p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=DRAG_SCENE)
     seen = {"n": 0}
 
@@ -375,7 +376,25 @@ def test_drag_can_be_aborted_mid_traversal(tmp_path):
     drv.on_pointer = stop_during_drag
     res = p.run()
     assert res.partial is True
-    assert not any(c[0] == "up" for c in drv.calls)      # aborted before the release
+    kinds = [c[0] for c in drv.calls]
+    assert kinds.count("down") == 1 and kinds.count("up") == 1
+    assert kinds.index("up") > kinds.index("down")
+    traversal = sum(1 for c in drv.calls[kinds.index("down"):kinds.index("up")] if c[0] == "pos")
+    assert traversal < 5                                 # it really did stop part-way through
+    assert drv.calls[-1] == ("teardown",)
+
+
+def test_a_driver_failure_mid_drag_still_releases_the_button(tmp_path):
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=DRAG_SCENE)
+
+    def boom(n):
+        if any(c[0] == "down" for c in drv.calls):
+            raise RuntimeError("pointer boom")
+
+    drv.on_pointer = boom
+    with pytest.raises(RuntimeError, match="pointer boom"):
+        p.run()
+    assert ("up", "left") in drv.calls
     assert drv.calls[-1] == ("teardown",)
 
 
@@ -415,3 +434,50 @@ def test_wheel_selector_failure_becomes_a_step_error(tmp_path):
     with pytest.raises(StepError) as ei:
         p.run()
     assert ei.value.step_index == 0
+
+
+def test_drag_approach_move_does_not_burn_the_drag_duration(tmp_path):
+    """smooth() emits Move(to=path[0]) before every drag, so the approach must cost nothing extra."""
+    scene = {**SCENE, "cursor": {"speed": 1000}, "defaults": {"hold": 0},
+             "output": {"fps": 60, "lead_in": 0.5, "lead_out": 0},
+             "steps": [{"move": {"to": [100, 100]}},
+                       {"drag": {"path": [[100, 100], [200, 100]], "duration": 2.0}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    res = p.run()
+    kinds = [c[0] for c in drv.calls]
+    down = kinds.index("down")
+    up = kinds.index("up")
+    # the move step's own last tick lands on path[0]; nothing at all happens between it and `down`
+    assert drv.calls[down - 1] == ("pos", 200, 200)
+    assert [c for c in drv.calls[:down] if c[0] == "pos"][-1] == ("pos", 200, 200)
+    assert sum(1 for c in drv.calls[down:up] if c[0] == "pos") == 20      # 2.0 s at 10 Hz, exactly
+    # 0.5 lead_in + move (361 px @ 1000 px/s -> 0.4 s, 4 ticks) + 2.0 drag = 2.9 s, no frozen 2.0
+    assert res.duration == pytest.approx(2.9, abs=0.15)
+
+
+def test_a_drag_that_starts_where_the_pointer_is_makes_no_approach_ticks(tmp_path):
+    """path[0] == the pointer: the approach is skipped outright, not run for its floor duration."""
+    scene = {**SCENE, "cursor": {"speed": 1000}, "defaults": {"hold": 0},
+             "output": {"fps": 60, "lead_in": 0, "lead_out": 0},
+             # (400, 300) resolves to the region centre, where the player parks the pointer
+             "steps": [{"drag": {"path": [[400, 300], [420, 300]], "duration": 0.5}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    p.run()
+    kinds = [c[0] for c in drv.calls]
+    down = kinds.index("down")
+    # calls[0] is setup and calls[1] the initial centring: nothing else precedes the press
+    assert sum(1 for c in drv.calls[2:down] if c[0] == "pos") == 0
+    assert sum(1 for c in drv.calls[down:kinds.index("up")] if c[0] == "pos") == 5
+
+
+def test_drag_approach_still_happens_when_the_pointer_is_elsewhere(tmp_path):
+    scene = {**SCENE, "cursor": {"speed": 1000}, "defaults": {"hold": 0},
+             "output": {"fps": 60, "lead_in": 0, "lead_out": 0},
+             "steps": [{"drag": {"path": [[100, 100], [200, 100]], "duration": 2.0}}]}
+    p, drv, caps, ovs, clock = _player(tmp_path, scene_dict=scene)
+    p.run()
+    kinds = [c[0] for c in drv.calls]
+    down = kinds.index("down")
+    approach = [c for c in drv.calls[2:down] if c[0] == "pos"]
+    # 361 px from the region centre at 1000 px/s -> 0.36 s -> 4 ticks; NOT the drag's 2.0 s (20)
+    assert len(approach) == 4 and approach[-1] == ("pos", 200, 200)

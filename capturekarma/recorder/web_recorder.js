@@ -58,10 +58,15 @@
 
   // ---- clicks and drags -------------------------------------------------------------------
   // A press that travels (orbiting a 3D viewer, moving a slider) is a drag, not a click. Both
-  // arrive as pointerdown/up, and the browser fires a synthetic `click` after the up either way,
-  // so a recognised drag sets suppressClick to keep that click out of the scene.
+  // arrive as pointerdown/up, and the browser fires a synthetic `click` after the up - but only
+  // for the primary button - so a recognised *left* drag sets suppressClick to keep that click out
+  // of the scene. Arming it for a right/middle drag (panning a 3D viewer) would leave the flag set
+  // with no click to consume it, swallowing the user's next real left click instead.
   // Thresholds are mirrored in recorder/desktop.py; keep the two in step.
   const DRAG_SAMPLE_MS = 40, DRAG_SAMPLE_PX = 8, DRAG_MIN_PX = 6, DRAG_MIN_MS = 300;
+  // A long press that wandered a pixel or two is a click held a moment too long, not a drag - and
+  // a drag has no selector form, so misreading one turns a button click into bare coordinates.
+  const DRAG_MIN_LONG_PRESS_PX = 3;
   let drag = null;
   let suppressClick = false;
 
@@ -70,6 +75,7 @@
 
   document.addEventListener("pointerdown", e => {
     drag = null;
+    suppressClick = false;   // never let a stale flag from an earlier gesture eat this one's click
     if (e.button < 0 || e.button > 2) return;
     const p = [Math.round(e.clientX), Math.round(e.clientY)];
     drag = { path: [p], button: BUTTONS[e.button], t0: e.timeStamp, lastT: e.timeStamp, id: e.pointerId };
@@ -94,17 +100,21 @@
     let length = 0;
     for (let i = 1; i < d.path.length; i++) length += dist(d.path[i - 1], d.path[i]);
     const duration = e.timeStamp - d.t0;
+    const travel = dist(d.path[0], d.path[d.path.length - 1]);
     const moved = d.path.length > 1;
-    if (moved && (length >= DRAG_MIN_PX || duration >= DRAG_MIN_MS)) {
-      suppressClick = true;   // cleared by the click handler below, whichever way it goes
+    const isDrag = moved && (length >= DRAG_MIN_PX
+                             || (duration >= DRAG_MIN_MS && travel >= DRAG_MIN_LONG_PRESS_PX));
+    if (isDrag) {
+      // Only the primary button gets a synthetic click to suppress.
+      if (e.button === 0) suppressClick = true;
       send({ kind: "drag", path: d.path, button: d.button, duration_ms: Math.round(duration) });
     }
   }, true);
 
   // Losing the pointer mid-gesture (a drag off the window, a context menu, alt-tab) means we never
   // see the release: throw the half-recorded path away rather than guess where it ended.
-  document.addEventListener("pointercancel", () => { drag = null; }, true);
-  window.addEventListener("blur", () => { drag = null; }, true);
+  document.addEventListener("pointercancel", () => { drag = null; suppressClick = false; }, true);
+  window.addEventListener("blur", () => { drag = null; suppressClick = false; }, true);
 
   document.addEventListener("click", e => {
     const wasDrag = suppressClick;

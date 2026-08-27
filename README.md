@@ -174,7 +174,7 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
   single-page app that paints late still works; after that the step fails with
   `element not found or not visible within 15s`.
 - **Long pauses are shortened to 2 s, except the first one.** The gap between recording start and
-  your first action is the app's load time and is written out in full — a 3D viewer can still be
+  your first action is the app's load time, so it is kept (up to 30 s) — a 3D viewer can still be
   downloading its model ten seconds in. Every later pause collapses to 2 s; stretch one back out by
   editing its `wait` step.
 - **Rotated / portrait monitors fall back to `gdigrab`** automatically, because `ddagrab` cannot capture them.
@@ -184,9 +184,10 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
   everything until you press F9. Web recording skips `input[type=password]` fields entirely. Scene files are
   plain-text YAML with every keystroke you typed in them — read one before you share it.
 - **A press is a drag only once it travels.** Both recorders call a press a `drag` when the pointer
-  moved at least 6 px, or when the press lasted 300 ms and moved at all; anything shorter stays a
-  `click`. A very slow, very small orbit of a 3D viewer can therefore land on the wrong side of that
-  line — check the recorded step and widen the path by hand if it did.
+  travelled at least 6 px along its path, or when the press lasted 300 ms *and* ended at least 3 px
+  from where it started; anything less stays a `click`. A very slow, very small orbit of a 3D viewer
+  can therefore land on the wrong side of that line — check the recorded step and widen the path by
+  hand if it did.
 - **`wheel` vs `scroll` is decided by whether the page moved.** The web recorder writes a `wheel`
   step when a burst of wheel events produced no `scroll` event anywhere (a canvas that zooms and
   calls `preventDefault`), and a `scroll` step otherwise. Desktop recording cannot tell the two

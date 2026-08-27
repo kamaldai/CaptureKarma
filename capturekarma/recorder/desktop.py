@@ -35,7 +35,10 @@ STOP_KEYS = {"f9", "esc"}
 DRAG_SAMPLE_SECONDS = 0.04   # keep a path point at least this often while the button is down ...
 DRAG_SAMPLE_PX = 8.0         # ... or as soon as the pointer has moved this far from the last one
 DRAG_MIN_PX = 6.0            # a press whose path is shorter than this is still a click ...
-DRAG_MIN_SECONDS = 0.3       # ... unless it lasted at least this long and moved at all
+DRAG_MIN_SECONDS = 0.3       # ... unless it lasted at least this long ...
+DRAG_MIN_LONG_PRESS_PX = 3.0 # ... and actually went somewhere. A long press that wandered a pixel
+                             # is a click held too long, and a drag has no selector form, so
+                             # misreading one turns a button click into bare coordinates.
 
 
 def _foreground_window() -> int:
@@ -73,7 +76,13 @@ class DesktopRecorder:
 
     # ---- pure handlers (unit-tested) ----
     def _rel(self, x: int, y: int) -> tuple[int, int]:
-        return (x - self.region.x, y - self.region.y)
+        """A screen point as region-relative px, clamped to the region.
+
+        A drag can leave the window (orbiting past the edge, releasing over the desktop) and the
+        raw offsets would then be negative or past the far edge - coordinates no driver can replay.
+        """
+        r = self.region
+        return (min(max(x - r.x, 0), r.width - 1), min(max(y - r.y, 0), r.height - 1))
 
     def on_click(self, x: int, y: int, button_name: str, pressed: bool) -> None:
         button = button_name if button_name in ("left", "right", "middle") else "left"
@@ -82,7 +91,8 @@ class DesktopRecorder:
             if not self._inside(x, y):
                 # A gesture that starts outside the recorded region belongs to another window.
                 return
-            self._press = {"t": self._t(), "button": button, "path": [self._rel(x, y)], "last_t": self._t()}
+            now = self._t()   # one read: two would stamp the press and its first sample differently
+            self._press = {"t": now, "button": button, "path": [self._rel(x, y)], "last_t": now}
             return
         press, self._press = self._press, None
         if press is None:
@@ -93,8 +103,10 @@ class DesktopRecorder:
             path.append(end)
         duration = self._t() - press["t"]
         length = sum(math.dist(a, b) for a, b in zip(path, path[1:]))
+        travel = math.dist(path[0], path[-1])
         moved = len(path) > 1
-        if moved and (length >= DRAG_MIN_PX or duration >= DRAG_MIN_SECONDS):
+        if moved and (length >= DRAG_MIN_PX
+                      or (duration >= DRAG_MIN_SECONDS and travel >= DRAG_MIN_LONG_PRESS_PX)):
             self.events.append(RawEvent(t=press["t"], kind="drag", path=tuple(path),  # type: ignore[arg-type]
                                         button=press["button"], duration=duration))
         else:

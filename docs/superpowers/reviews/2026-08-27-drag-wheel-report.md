@@ -291,3 +291,87 @@ A re-record is still required.
 10. **The uncapped first wait makes recordings longer.** A user who spends 40 s getting set up
     before their first click now gets a 40 s `wait` step. That is correct for load time and wrong
     for dithering, and the recorder cannot tell them apart — the README says to edit the step.
+
+---
+
+## Review fixes (this commit)
+
+Nine findings from the parallel review of the drag/wheel commits, fixed in one commit on top.
+
+### Critical
+
+**1. The drag approach burned the drag's duration.** `Player._drag` passed the `DragStep` itself to
+`_move`, so the approach move used the *drag's* `duration` rather than deriving one from the
+distance. Since `smooth()` always emits `Move(to=path[0])` immediately before a drag, the pointer
+was normally already there — and the player sat frozen for the whole drag duration before pressing
+(measured: a 2 s drag cost 4.4 s). The approach now runs with `replace(step, duration=None)` so it
+derives from distance, and is **skipped entirely** when `self._pointer == path[0]`.
+
+Three tests: `test_drag_approach_move_does_not_burn_the_drag_duration` asserts that nothing at all
+happens between the move step's last tick and `down`, that the traversal is exactly 20 ticks for a
+2 s drag at 10 Hz, and that the run totals ≈ 2.9 s (0.5 lead + 0.4 move + 2.0 drag) rather than
+4.9 s; `test_a_drag_that_starts_where_the_pointer_is_makes_no_approach_ticks` asserts zero
+approach ticks; `test_drag_approach_still_happens_when_the_pointer_is_elsewhere` asserts the
+approach is 4 distance-derived ticks and *not* the drag's 20.
+
+**2. An aborted drag left the button held.** The traversal is now wrapped in
+`try/finally: self.driver.mouse_up(step.button)`, so `_Aborted` and any driver error still release.
+`DesktopDriver` additionally tracks `_pressed: set[str]` in `mouse_down`/`mouse_up` and releases
+anything still held in `teardown()` (logged at debug) — a stuck press there outlives the run and
+belongs to the user's whole session. `test_drag_can_be_aborted_mid_traversal` was inverted into
+`test_drag_aborted_mid_traversal_still_releases_the_button` (asserts exactly one `down`, one `up`,
+`up` after `down`, and a genuinely partial traversal), joined by
+`test_a_driver_failure_mid_drag_still_releases_the_button` and two `DesktopDriver` teardown tests.
+
+### Important
+
+**3. `suppressClick` could swallow a real click.** Only the primary button produces a synthetic
+`click`, so a right/middle drag (panning a 3D viewer) armed the flag with nothing to consume it and
+ate the user's *next* left click. It is now reset in `pointerdown`, armed only when
+`e.button === 0`, and cleared on `pointercancel`/`blur`. Two integration tests:
+`test_a_right_button_drag_does_not_swallow_the_next_real_click` and
+`test_a_cancelled_drag_does_not_swallow_the_next_real_click`.
+
+**4. A drag was followed by a spurious wait.** A drag is stamped at its press but occupies the whole
+press-to-release span, so `last_t = e.t` left the drag's own duration looking like a pause — every
+drag gained a wait up to `max_wait`. Now `last_t = e.t + e.duration`. Golden:
+`test_a_drag_consumes_its_own_span_so_no_spurious_wait_follows` (drag t=1.0 dur=2.0 then click at
+t=3.2 leaves 0.2 s, below `min_wait`, so no wait between), plus
+`test_a_real_pause_after_a_drag_is_still_a_wait` so the accounting cannot swallow a genuine pause.
+
+**5. A long press with a 1 px tremor was misread as a drag.** Drags have no selector form, so this
+silently degraded a button click to bare coordinates. The `>= 300 ms` branch now also requires
+`>= 3 px` of **displacement** (`DRAG_MIN_LONG_PRESS_PX`, start to end) in both `web_recorder.js` and
+`recorder/desktop.py`. Tests: `test_a_long_press_that_barely_moves_is_a_click_not_a_drag` and
+`test_a_long_press_that_travels_far_enough_is_still_a_drag`.
+
+### Minor
+
+**6.** `DesktopRecorder._rel` clamps to the region, so a drag that leaves the window can no longer
+record negative or overflowing coordinates —
+`test_a_drag_that_leaves_the_window_is_clamped_to_the_region`.
+
+**7.** `test_a_wheel_over_a_zooming_canvas_is_recorded_as_a_wheel` now wheels **down** (positive)
+from `scrollY == 0` on a 4000 px body, and asserts `scrollY` is still 0 afterwards. The old negative
+delta proved nothing: the page was already at the top and could not have scrolled up anyway.
+
+**8.** Ruling on concern #10 taken: `SmoothConfig.max_first_wait = 30.0` caps the previously
+uncapped first wait. 7.3 s still records as 7.3 s; a 45 s gap now records as 30 s
+(`test_the_first_wait_is_capped_at_max_first_wait`).
+
+**9.** `on_click` reads the clock once per press instead of twice (the two reads stamped the press
+and its first path sample differently), and
+`test_install_file_log_writes_library_logs_to_a_rotating_file` restores the `capturekarma` logger's
+level, which `install_file_log()` forces to INFO.
+
+README updated for the new drag threshold and the 30 s first-wait cap.
+
+### Verification
+
+    uv run pytest -q
+    261 passed, 44 deselected in 2.24s
+
+    uv run pytest -q -m integration tests/test_web_driver.py tests/test_web_recorder.py tests/test_player.py
+    38 passed, 29 deselected in 39.06s
+
+The desktop is still locked, so the screen-capture win32 tests were skipped as directed.

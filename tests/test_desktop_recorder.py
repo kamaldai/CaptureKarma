@@ -316,3 +316,31 @@ def test_drag_scene_survives_a_round_trip(tmp_path):
     path = tmp_path / "drag-scene.yaml"
     dump_scene(scene, path)
     assert load_scene(path) == scene
+
+
+def test_a_long_press_that_barely_moves_is_a_click_not_a_drag():
+    """A 1 px tremor over 350 ms is a click held too long; a drag would lose the selector."""
+    r, c = _rec()
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    c.t = 1.35; r.on_move(151, 260)
+    c.t = 1.4; r.on_click(151, 260, "left", False)
+    assert [e.kind for e in r.events] == ["click"]
+    assert r.events[0].at == (50, 60)
+
+
+def test_a_long_press_that_travels_far_enough_is_still_a_drag():
+    r, c = _rec()
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    c.t = 1.35; r.on_move(154, 260)          # 4 px >= the long-press floor
+    c.t = 1.4; r.on_click(154, 260, "left", False)
+    assert [e.kind for e in r.events] == ["drag"]
+
+
+def test_a_drag_that_leaves_the_window_is_clamped_to_the_region():
+    r, c = _rec()                            # Region(100, 200, 800, 600)
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    c.t = 1.1; r.on_move(50, 100)            # up and left of the region
+    c.t = 1.2; r.on_move(2000, 1500)         # past the far corner
+    c.t = 1.3; r.on_click(2000, 1500, "left", False)
+    assert r.events[0].path == ((50, 60), (0, 0), (799, 599))
+    assert all(0 <= x < 800 and 0 <= y < 600 for x, y in r.events[0].path)

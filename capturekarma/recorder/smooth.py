@@ -21,6 +21,7 @@ class SmoothConfig:
     min_drag: float = 0.6              # a recorded drag never replays faster than this
     max_drag: float = 6.0              # ... nor slower
     max_wait: float = 2.0              # long pauses collapse to this - except the very first one
+    max_first_wait: float = 30.0       # ... which is the app's load time, and only capped here
     min_wait: float = 0.3              # shorter pauses are dropped entirely, first one included
     type_gap: float = 1.0              # a pause longer than this splits typing into two steps
     type_delay: float = 0.05           # per-character delay written into type steps
@@ -42,12 +43,15 @@ def _wait(gap: float, cfg: SmoothConfig, first: bool = False) -> list[Step]:
 
     The gap from recording start to the first event is the app's *load time*, not a pause the
     presenter took: a 3D viewer can still be downloading its model ten seconds in. Capping it to
-    2 s makes playback reach for an element the page has not painted yet, so the first wait is
-    written out in full. Every later gap is a human pause and still collapses to `max_wait`.
+    2 s makes playback reach for an element the page has not painted yet, so the first wait gets
+    its own, far looser `max_first_wait` - loose enough for a slow app, bounded so that time spent
+    getting set up before the demo does not become half the video. Every later gap is a human
+    pause and still collapses to `max_wait`.
     """
     if gap < cfg.min_wait:
         return []
-    return [WaitStep(seconds=round(gap if first else min(gap, cfg.max_wait), 3))]
+    cap = cfg.max_first_wait if first else cfg.max_wait
+    return [WaitStep(seconds=round(min(gap, cap), 3))]
 
 
 def smooth(events: list[RawEvent], config: SmoothConfig = SmoothConfig()) -> list[Step]:
@@ -69,7 +73,9 @@ def smooth(events: list[RawEvent], config: SmoothConfig = SmoothConfig()) -> lis
             steps.append(DragStep(path=e.path,
                                   duration=round(max(config.min_drag, min(config.max_drag, e.duration)), 3),
                                   button=e.button))
-            last_t = e.t
+            # A drag is stamped at its *press*, but it occupies the whole press-to-release span.
+            # Without this every drag is followed by a wait as long as the drag itself.
+            last_t = e.t + e.duration
             i += 1
         elif e.kind == "wheel":
             steps += _wait(e.t - last_t, config, first=not steps)

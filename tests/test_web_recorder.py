@@ -151,15 +151,20 @@ def test_a_press_and_release_in_place_is_still_a_click(rec):
 
 
 def test_a_wheel_over_a_zooming_canvas_is_recorded_as_a_wheel(rec):
+    # Scroll *down*: the page is at the top of a 4000 px body, so it would certainly have moved had
+    # the canvas not swallowed the event. A negative delta would prove nothing - the page is
+    # already at offset 0 and could not scroll up regardless.
+    assert rec.page.evaluate("window.scrollY") == 0
     cx, cy = _stage_center(rec)
     rec.page.mouse.move(cx, cy)
-    rec.page.mouse.wheel(0, -120)
-    rec.page.mouse.wheel(0, -120)
+    rec.page.mouse.wheel(0, 120)
+    rec.page.mouse.wheel(0, 120)
     rec.page.wait_for_timeout(400)
     wheels = [e for e in rec.events if e.kind == "wheel"]
-    assert len(wheels) == 1 and wheels[0].delta == -240
+    assert len(wheels) == 1 and wheels[0].delta == 240
     assert wheels[0].at == (round(cx), round(cy))
-    assert not [e for e in rec.events if e.kind == "scroll"]     # the page never moved
+    assert rec.page.evaluate("window.scrollY") == 0             # the page really never moved
+    assert not [e for e in rec.events if e.kind == "scroll"]
 
 
 def test_a_wheel_that_scrolls_the_page_is_not_recorded_as_a_wheel(rec):
@@ -263,3 +268,39 @@ def test_the_recorded_scene_carries_the_measured_viewport(rec):
     measured = tuple(rec.page.evaluate("[window.innerWidth, window.innerHeight]"))
     assert rec.actual_viewport == measured
     assert rec.to_scene("t").target.viewport == measured
+
+
+def test_a_right_button_drag_does_not_swallow_the_next_real_click(rec):
+    """No synthetic click follows a right/middle drag, so arming suppressClick would eat the next one."""
+    cx, cy = _stage_center(rec)
+    rec.page.mouse.move(cx, cy)
+    rec.page.mouse.down(button="right")
+    for dx in (30, 60, 90):
+        rec.page.mouse.move(cx + dx, cy)
+        rec.page.wait_for_timeout(50)
+    rec.page.mouse.up(button="right")
+    rec.page.wait_for_timeout(250)
+    rec.page.click("#btn-primary")
+    rec.page.wait_for_timeout(250)
+    kinds = _kinds(rec.events)
+    assert kinds.count("drag") == 1
+    assert [e.button for e in rec.events if e.kind == "drag"] == ["right"]
+    clicks = [e for e in rec.events if e.kind == "click"]
+    assert [c.selector for c in clicks] == ['[data-testid="primary"]']   # the real click survived
+
+
+def test_a_cancelled_drag_does_not_swallow_the_next_real_click(rec):
+    cx, cy = _stage_center(rec)
+    rec.page.mouse.move(cx, cy)
+    rec.page.mouse.down()
+    rec.page.mouse.move(cx + 80, cy + 10)
+    rec.page.wait_for_timeout(60)
+    rec.page.evaluate("window.dispatchEvent(new Event('blur'))")   # alt-tab mid-gesture
+    rec.page.mouse.up()
+    rec.page.wait_for_timeout(250)
+    rec.page.click("#btn-primary")
+    rec.page.wait_for_timeout(250)
+    assert "drag" not in _kinds(rec.events)                        # the half-gesture was discarded
+    # With no drag recognised the gesture's own synthetic click is (correctly) kept as a click -
+    # what matters is that the *following* real click was not swallowed by a stale suppress flag.
+    assert [e.selector for e in rec.events if e.kind == "click"][-1] == '[data-testid="primary"]'

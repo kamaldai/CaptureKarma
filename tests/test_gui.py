@@ -147,6 +147,7 @@ def test_install_file_log_writes_library_logs_to_a_rotating_file(tmp_path: Path)
 
     lib_logger = logging.getLogger("capturekarma")
     before = list(lib_logger.handlers)
+    before_level = lib_logger.level      # install_file_log() forces INFO; put it back afterwards
     try:
         path = install_file_log(tmp_path)
         assert path == tmp_path / "capturekarma.log"
@@ -167,6 +168,7 @@ def test_install_file_log_writes_library_logs_to_a_rotating_file(tmp_path: Path)
             if h not in before:
                 h.close()
                 lib_logger.removeHandler(h)
+        lib_logger.setLevel(before_level)
 
 
 def test_install_file_log_survives_an_unwritable_directory(tmp_path: Path, monkeypatch):

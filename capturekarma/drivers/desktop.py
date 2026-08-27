@@ -21,6 +21,9 @@ class DesktopDriver:
         self._ticker = ticker or Ticker()
         self._in = input_module
         self._region: Region | None = None
+        #: Buttons currently held by us. A drag that aborts between down and up would otherwise
+        #: leave the real mouse pressed for the whole user session, not just for this run.
+        self._pressed: set[str] = set()
 
     def setup(self, scene: Scene) -> Region:
         t = scene.target
@@ -50,9 +53,11 @@ class DesktopDriver:
 
     def mouse_down(self, button: str = "left") -> None:
         self._in.mouse_button(button, True)
+        self._pressed.add(button)
 
     def mouse_up(self, button: str = "left") -> None:
         self._in.mouse_button(button, False)
+        self._pressed.discard(button)
 
     def smooth_scroll(self, step: ScrollStep, duration: float, easing: Easing) -> None:
         if step.by is None:
@@ -85,4 +90,8 @@ class DesktopDriver:
         ImageGrab.grab(bbox=(r.x, r.y, r.right, r.bottom), all_screens=True).save(path)
 
     def teardown(self) -> None:
+        for button in sorted(self._pressed):
+            log.debug("releasing %s mouse button left down by an interrupted step", button)
+            self._in.mouse_button(button, False)
+        self._pressed.clear()
         self._region = None
