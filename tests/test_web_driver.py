@@ -1,6 +1,6 @@
 import pytest
 
-from capturekarma.drivers.base import StepError
+from capturekarma.drivers.base import DriverError, StepError
 from capturekarma.drivers.web import WebDriver
 from capturekarma.motion.easing import get_easing
 from capturekarma.scene.model import Scene, ScrollStep, StepTarget, Target
@@ -89,3 +89,24 @@ def test_coordinate_helpers_before_setup_raise():
     d = WebDriver(headless=True)
     with pytest.raises(Exception, match="not set up"):
         d.to_screen(0, 0)
+
+
+def test_setup_tears_down_on_unexpected_error(fixture_url, monkeypatch):
+    """A non-Playwright failure mid-setup must not leak the browser process."""
+    def boom(self):
+        raise KeyError("ow")
+
+    monkeypatch.setattr(WebDriver, "_measure", boom)
+    d = WebDriver(headless=True)
+    with pytest.raises(KeyError, match="ow"):
+        d.setup(Scene(name="t", target=Target(kind="web", url=fixture_url, viewport=(800, 600)),
+                      steps=()))
+    assert d.page is None and d._browser is None and d._context is None and d._pw is None
+
+
+def test_setup_bad_url_raises_driver_error_and_tears_down():
+    d = WebDriver(headless=True)
+    with pytest.raises(DriverError, match="could not launch browser or open"):
+        d.setup(Scene(name="t", target=Target(kind="web", url="http://127.0.0.1:9/",
+                                              viewport=(800, 600)), steps=()))
+    assert d.page is None and d._browser is None and d._context is None and d._pw is None

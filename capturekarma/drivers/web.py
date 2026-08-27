@@ -88,6 +88,9 @@ class WebDriver:
         except PWError as exc:
             self.teardown()
             raise DriverError(f"could not launch browser or open {t.url}: {exc}") from exc
+        except BaseException:  # noqa: BLE001 - never leak a browser process; re-raised unchanged
+            self.teardown()
+            raise
         assert self.region is not None
         return self.region
 
