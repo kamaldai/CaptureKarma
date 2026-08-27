@@ -223,3 +223,43 @@ def test_canvas_drag_and_wheel_replay_through_the_driver(fixture_url):
     finally:
         d.teardown()
     assert played == recorded
+
+
+def test_multiline_button_text_is_normalised_into_a_selector_that_resolves(rec):
+    """The old recorder wrote raw innerText, newlines and all: unquotable, and it matched nothing.
+
+    Playwright's :has-text() searches the element's whitespace-normalised *textContent*, so that
+    is what has to be written out - here "3Steps", since a <br> contributes nothing to textContent.
+    """
+    rec.page.click("text=Steps")
+    rec.page.wait_for_timeout(200)
+    clicks = [e for e in rec.events if e.kind == "click"]
+    assert [c.selector for c in clicks] == ['button:has-text("3Steps")']
+    sel = clicks[0].selector
+    assert "\n" not in sel
+    assert rec.page.locator(sel).count() == 1        # and Playwright really resolves it
+
+
+def test_text_selectors_are_only_used_when_the_substring_match_is_unique(rec):
+    """:has-text() is a substring match: a label contained in another button's label is unusable."""
+    rec.page.evaluate("document.body.insertAdjacentHTML('beforeend',"
+                      "'<button><span>3</span><br>Steps and more</button>')")
+    rec.page.locator("button", has_text="3Steps").first.click()   # the original "3Steps" button
+    rec.page.wait_for_timeout(200)
+    sel = [e for e in rec.events if e.kind == "click"][-1].selector
+    # "3Steps and more" also contains "3Steps", so :has-text("3Steps") would be ambiguous
+    assert sel is not None and not sel.startswith("button:has-text(")
+    assert rec.page.locator(sel).count() == 1
+
+    # the longer label is still unique on its own, and is still used
+    rec.page.locator("button", has_text="3Steps and more").click()
+    rec.page.wait_for_timeout(200)
+    sel = [e for e in rec.events if e.kind == "click"][-1].selector
+    assert sel == 'button:has-text("3Steps and more")'
+    assert rec.page.locator(sel).count() == 1
+
+
+def test_the_recorded_scene_carries_the_measured_viewport(rec):
+    measured = tuple(rec.page.evaluate("[window.innerWidth, window.innerHeight]"))
+    assert rec.actual_viewport == measured
+    assert rec.to_scene("t").target.viewport == measured

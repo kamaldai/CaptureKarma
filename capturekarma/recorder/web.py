@@ -33,6 +33,10 @@ class WebRecorder:
         self._context = None
         self._t0 = 0.0
         self._closed = threading.Event()
+        #: The viewport the page actually got, measured after start(). Chromium clamps a window it
+        #: cannot fit on the screen, so this is often shorter than `viewport` was asked for - and
+        #: it, not the request, is the frame every recorded coordinate belongs to.
+        self.actual_viewport: tuple[int, int] | None = None
 
     def _on_event(self, source, payload: str) -> None:
         d = json.loads(payload)
@@ -58,6 +62,9 @@ class WebRecorder:
         from playwright.sync_api import sync_playwright
 
         w, h = self.viewport
+        if not self._headless:
+            from capturekarma.drivers.web import fit_viewport_to_monitor
+            w, h = fit_viewport_to_monitor(w, h)
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(
             headless=self._headless,
@@ -79,6 +86,11 @@ class WebRecorder:
                          RawEvent(t=self._clock() - self._t0, kind="navigate", url=f.url)))
         self._t0 = self._clock()
         self.page.goto(self.url, wait_until="load")
+        iw, ih = self.page.evaluate("[window.innerWidth, window.innerHeight]")
+        self.actual_viewport = (int(iw), int(ih))
+        if self.actual_viewport != self.viewport:
+            log.warning("viewport is %dx%d, not the requested %dx%d; recording against the real one",
+                        iw, ih, *self.viewport)
         log.info("recording %s — perform the demo, press F9 (or close the browser) to stop", self.url)
 
     def wait(self, stop: threading.Event, poll: float = 0.1) -> None:
@@ -113,7 +125,9 @@ class WebRecorder:
         return self.events
 
     def to_scene(self, name: str, config: SmoothConfig = SmoothConfig()) -> Scene:
-        return Scene(name=name, target=Target(kind="web", url=self.url, viewport=self.viewport),
+        # The measured viewport, never the requested one: coordinates were recorded against it.
+        viewport = self.actual_viewport or self.viewport
+        return Scene(name=name, target=Target(kind="web", url=self.url, viewport=viewport),
                      steps=tuple(smooth(self.events, config)))
 
 

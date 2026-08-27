@@ -35,11 +35,18 @@
       const s = tag + "." + Array.from(el.classList).map(cssEscape).join(".");
       if (unique(s)) return s;
     }
-    const text = (el.innerText || "").trim();
-    if (text && text.length <= 40 && ["button", "a", "label", "summary"].includes(tag)) {
-      const s = `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
-      const matches = Array.from(document.querySelectorAll(tag)).filter(n => (n.innerText || "").trim() === text);
-      if (matches.length === 1) return s;
+    // Playwright's :has-text() is a case-insensitive *substring* match over the element's
+    // whitespace-normalised textContent -- not innerText, whose line breaks (a badge stacked over
+    // a label) both fail to match and cannot even be quoted inside a CSS selector: a raw newline
+    // there is a parse error. So normalise textContent, and check uniqueness the way Playwright
+    // will actually match, or "Save" would be recorded as unique next to a "Save all" button.
+    const norm = s => (s || "").replace(/\s+/g, " ").trim();
+    const text = norm(el.textContent);
+    if (text.length >= 1 && text.length <= 40 && ["button", "a", "label", "summary"].includes(tag)) {
+      const needle = text.toLowerCase();
+      const matches = Array.from(document.querySelectorAll(tag))
+        .filter(n => norm(n.textContent).toLowerCase().includes(needle));
+      if (matches.length === 1) return `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
     }
     const path = cssPath(el);
     return unique(path) ? path : null;

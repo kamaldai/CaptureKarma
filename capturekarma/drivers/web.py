@@ -50,6 +50,45 @@ def fit_window_to_viewport(page, context, width: int, height: int,
     page.wait_for_timeout(100)
 
 
+#: Rough allowance (CSS px) for a headed Chromium window's own chrome: side borders, and the tab
+#: strip plus the address bar. Only used to decide whether a *requested* viewport can possibly fit.
+WINDOW_CHROME = (16, 120)
+
+
+def fit_viewport_to_monitor(width: int, height: int, chrome: tuple[int, int] = WINDOW_CHROME,
+                            monitors: list | None = None) -> tuple[int, int]:
+    """Shrink a requested viewport so the browser window still fits on the primary monitor.
+
+    Chromium silently clamps a window larger than the screen, so a 1920x1080 request on a 1080p
+    display quietly yields a viewport ~75 px shorter than asked for - and every coordinate recorded
+    against it is then wrong. Shrinking up front makes the size we ask for the size we get.
+
+    Best effort: monitor sizes are physical px while the viewport is CSS px, so this is exact only
+    at devicePixelRatio 1. `_measure()` records the truth after the window exists either way.
+    """
+    if monitors is None:
+        from capturekarma._win import IS_WINDOWS
+        if not IS_WINDOWS:
+            return (width, height)
+        from capturekarma.capture import CaptureError, list_monitors
+        try:
+            monitors = list_monitors()
+        except CaptureError as exc:
+            log.warning("cannot enumerate monitors, using the requested viewport as-is: %s", exc)
+            return (width, height)
+    primary = next((m for m in monitors if m.primary), monitors[0] if monitors else None)
+    if primary is None:
+        return (width, height)
+    max_w = max(1, primary.region.width - chrome[0])
+    max_h = max(1, primary.region.height - chrome[1])
+    w, h = min(width, max_w), min(height, max_h)
+    if (w, h) != (width, height):
+        log.warning("requested viewport %dx%d does not fit on the primary monitor (%dx%d) with the "
+                    "browser's own chrome; using %dx%d instead",
+                    width, height, primary.region.width, primary.region.height, w, h)
+    return (w, h)
+
+
 @dataclass(frozen=True)
 class ViewportMetrics:
     origin_x: int   # physical px of viewport top-left on screen
@@ -82,6 +121,9 @@ class WebDriver:
         t = scene.target
         assert t.url is not None
         w, h = t.viewport
+        if not self._headless:
+            # Headless sizes the viewport directly, so there is no window to fit on a monitor.
+            w, h = fit_viewport_to_monitor(w, h)
         try:
             self._pw = sync_playwright().start()
             args = [f"--window-position={self._window_pos[0]},{self._window_pos[1]}",

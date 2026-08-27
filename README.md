@@ -184,6 +184,10 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
   step when a burst of wheel events produced no `scroll` event anywhere (a canvas that zooms and
   calls `preventDefault`), and a `scroll` step otherwise. Desktop recording cannot tell the two
   apart at all and always writes a `scroll`; hand-edit it to `wheel` for a desktop 3D viewer.
+- **Text selectors are recorded only when they are unambiguous.** `button:has-text("Save")` is a
+  case-insensitive *substring* match on normalised text, so a "Save" next to a "Save all" gets a
+  structural `body > ... > button:nth-of-type(2)` selector instead. Those break when the page
+  changes; give the element an `id` or a `data-testid` if you plan to keep the scene.
 - **An inner scroll container with no unique selector is recorded as a page scroll.** If the recorder cannot
   name the element you scrolled, the step is written as a page scroll; add an `id` to the container or
   hand-edit the step's `in:` selector.
