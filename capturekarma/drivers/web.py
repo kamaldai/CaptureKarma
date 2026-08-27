@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -106,10 +107,17 @@ class WebDriver:
     #: slow enough that a viewer's own zoom easing keeps up.
     WHEEL_HZ = 30
 
-    def __init__(self, headless: bool = False, window_pos: Point = (0, 0), ticker: Ticker | None = None):
+    #: How long `resolve` waits for a selector target to become visible. A single-page app can be
+    #: seconds away from painting the element the next step wants - a 3D viewer is still downloading
+    #: its model well after `load` fires - and failing instantly there kills the whole take.
+    RESOLVE_TIMEOUT_MS = 15_000
+
+    def __init__(self, headless: bool = False, window_pos: Point = (0, 0), ticker: Ticker | None = None,
+                 resolve_timeout_ms: int = RESOLVE_TIMEOUT_MS):
         self._headless = headless
         self._window_pos = window_pos
         self._ticker = ticker or Ticker(hz=self.WHEEL_HZ)
+        self.resolve_timeout_ms = resolve_timeout_ms
         self._pw = None
         self._browser = None
         self._context = None
@@ -195,16 +203,26 @@ class WebDriver:
         assert self.page is not None
         m = self._m()
         if target.selector is not None:
-            from playwright.sync_api import Error as PWError
+            from playwright.sync_api import Error as PWError, TimeoutError as PWTimeout
 
             sel = target.selector
+            started = time.perf_counter()
             try:
                 loc = self.page.locator(sel).first
-                box = loc.bounding_box() if loc.count() else None
+                # Wait rather than fail instantly: the element may not be painted yet.
+                loc.wait_for(state="visible", timeout=self.resolve_timeout_ms)
+                box = loc.bounding_box()
+            except PWTimeout as exc:
+                raise StepError(f"element not found or not visible within "
+                                f"{self.resolve_timeout_ms / 1000:g}s: {sel!r}") from exc
             except PWError as exc:
                 # A malformed or engine-rejected selector is a scene problem, not a crash.
                 raise StepError(f"invalid or failing selector {sel!r}: {exc}") from exc
+            waited = time.perf_counter() - started
+            if waited > 1.0:
+                log.info("waited %.1f s for %r to appear", waited, sel)
             if box is None:
+                # Visible but with no box (a zero-size or detached element) - nothing to aim at.
                 raise StepError(f"element not found or not visible: {target.selector!r}")
             cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
             if not (0 <= cx < m.css_w and 0 <= cy < m.css_h):

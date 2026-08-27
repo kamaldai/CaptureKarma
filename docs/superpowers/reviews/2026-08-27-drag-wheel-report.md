@@ -206,3 +206,88 @@ by the fixture integration test described above instead.
    desktop before release. The display also changed mode from 1920x1080 to 1600x900 partway through
    the session (the GPU still reports 1920x1080), which is what the ddagrab
    `Failed duplicating output` fallbacks were tracking.
+
+---
+
+## Follow-up: slow-loading apps and the uncapped load-time wait (`ef42603`)
+
+Two robustness fixes from the same real scene, both aimed at concern #1 above.
+
+### 1. `WebDriver.resolve()` waits for the element
+
+`resolve()` called `bounding_box()` immediately, so a selector target that the page had not painted
+yet failed on the spot — which is exactly how the user's scene died at step 2 while the viewer was
+still at 51%. It now calls `loc.wait_for(state="visible", timeout=self.resolve_timeout_ms)` first
+(constructor arg `resolve_timeout_ms`, default 15000). A `PlaywrightTimeoutError` becomes
+`StepError("element not found or not visible within 15s: '...'")`; a malformed selector still
+becomes the existing `invalid or failing selector` `StepError`, and the off-screen check is
+unchanged. When the wait actually took more than a second it logs at INFO:
+`waited 5.7 s for '[data-testid="stage"]' to appear`.
+
+`smooth_scroll`'s container lookup was left alone, as directed.
+
+### 2. The first wait is the app's load time, not a pause
+
+`smooth()` capped every gap at `max_wait` (2.0 s), including the gap from recording start to the
+first event. That gap is the app's *load time* and shortening it guarantees playback reaches for an
+element the page has not painted. `_wait()` now takes `first=` (threaded through as
+`first=not steps`, i.e. "nothing emitted yet") and writes `round(gap, 3)` uncapped for that one
+wait. It is still dropped when below `min_wait`, and every later gap still collapses to `max_wait`.
+`SmoothConfig`'s comments and `_wait`'s docstring say so.
+
+**One existing golden changed deliberately:** `test_gaps_become_capped_waits` starts its first
+event at `t=5.0` and asserted `WaitStep(seconds=2.0)`; it now asserts `WaitStep(seconds=5.0)`. That
+is the new intended behaviour, not a regression — the two later gaps in the same test (0.5 s kept,
+0.1 s dropped) are unchanged. No other golden needed touching: every other test's first event is at
+`t <= 0.2`, below `min_wait`, so it emitted no leading wait either way.
+
+New tests: `test_the_first_wait_is_the_load_time_and_is_never_capped` (first event at t=7.3 gives
+`WaitStep(seconds=7.3)`, a later 5 s gap still gives 2.0), `test_a_short_first_gap_is_still_dropped`,
+and `test_only_the_leading_gap_is_uncapped_not_the_first_gap_of_each_kind` (guards against `first`
+being misread as "first scroll"). Driver side:
+`test_resolve_waits_for_an_element_that_appears_late` (a button inserted after 1400 ms resolves, and
+the "waited" INFO line is asserted via `caplog`),
+`test_resolve_gives_up_after_its_timeout_and_says_so` (`resolve_timeout_ms=300` raises `StepError`
+matching `within 0.3s`), and `test_resolve_timeout_is_configurable_from_the_constructor`.
+`test_resolve_missing_raises` now sets a 300 ms timeout so it does not sit out the full 15 s.
+
+README documents both under Limitations.
+
+### Verification
+
+    uv run pytest -q
+    249 passed, 42 deselected in 2.66s
+
+    uv run pytest -q -m integration tests/test_web_driver.py tests/test_web_recorder.py
+    36 passed in 36.25s
+
+The desktop became **locked** partway through this follow-up, so the capture-dependent win32 tests
+and a full `ck play` can no longer run at all here — `gdigrab` now fails with
+`Failed to capture image (error 5)` (ACCESS_DENIED) before any step executes, and ddagrab with
+`Failed to enumerate DXGI output 0`. That is the same environmental block described above, now
+total rather than partial.
+
+So the fix was verified at driver level against the real viewer instead, which is the part that
+actually changed:
+
+    INFO capturekarma.drivers.web: waited 5.7 s for '[data-testid="stage"]' to appear
+    RESOLVED step-2 target at (792, 390) after 5.7s
+    OK  button[aria-label="Annotate"] -> (1534, 362)
+    ERR button:has-text("1\nRadiator") -> invalid or failing selector ... Unsupported token "BADSTRING"
+
+**The step that killed the user's run now resolves**, after a 5.7 s wait, with the INFO line firing.
+The old scene's broken `has-text` selector still fails — correctly, and as a clean `StepError` — for
+the reason given above: the fix is in the recorder and that selector is baked into the file on disk.
+A re-record is still required.
+
+### Concerns (follow-up)
+
+8. **15 s is a guess.** It is generous for a normal app and short for a heavy 3D model on a slow
+   connection. It is a constructor arg but not yet reachable from a scene file or the CLI; a
+   per-step `timeout` override would be the natural next step.
+9. **`wait_for(state="visible")` is not "ready".** An element can be visible but not yet
+   interactive (a viewer that has painted its canvas but not finished loading the model). The wait
+   removes the common failure, not every race.
+10. **The uncapped first wait makes recordings longer.** A user who spends 40 s getting set up
+    before their first click now gets a 40 s `wait` step. That is correct for load time and wrong
+    for dithering, and the recorder cannot tell them apart — the README says to edit the step.

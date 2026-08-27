@@ -43,6 +43,7 @@ def test_resolve_offscreen_raises(driver):
 
 
 def test_resolve_missing_raises(driver):
+    driver.resolve_timeout_ms = 300      # otherwise this waits the full 15 s for nothing
     with pytest.raises(StepError, match="#nope"):
         driver.resolve(StepTarget(selector="#nope"))
 
@@ -146,3 +147,28 @@ def test_smooth_wheel_emits_several_events_over_its_duration(driver):
     driver.page.mouse.move(box["x"] + 20, box["y"] + 20)
     driver.smooth_wheel(WheelStep(by=600), duration=0.5, easing=get_easing("linear"))
     assert driver.page.evaluate("window.__stage.events") >= 10    # ~30 Hz over 0.5 s, minus zero deltas
+
+
+def test_resolve_waits_for_an_element_that_appears_late(driver, caplog):
+    """A single-page app paints long after `load`; resolve must wait, not fail at once."""
+    driver.page.evaluate("""setTimeout(() => {
+        const b = document.createElement('button');
+        b.id = 'late'; b.textContent = 'Late'; b.style.cssText = 'position:absolute;top:200px;left:600px';
+        document.body.appendChild(b);
+    }, 1400)""")
+    with caplog.at_level("INFO", logger="capturekarma.drivers.web"):
+        x, y = driver.resolve(StepTarget(selector="#late"))   # default 15 s budget
+    r = driver.region
+    assert r.x <= x < r.right and r.y <= y < r.bottom
+    assert any("waited" in rec.message and "#late" in rec.message for rec in caplog.records)
+
+
+def test_resolve_gives_up_after_its_timeout_and_says_so(driver):
+    driver.resolve_timeout_ms = 300
+    with pytest.raises(StepError, match="within 0.3s"):
+        driver.resolve(StepTarget(selector="#never-appears"))
+
+
+def test_resolve_timeout_is_configurable_from_the_constructor():
+    assert WebDriver().resolve_timeout_ms == 15_000
+    assert WebDriver(resolve_timeout_ms=2_000).resolve_timeout_ms == 2_000

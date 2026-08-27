@@ -170,7 +170,13 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
 - **Desktop scrolling is best-effort.** It is wheel-event emulation, so how smooth it looks is up to the target
   app's own scroll animation. Web scrolling is exact — prefer a web scene when you have the choice.
 - **Web element targets must be on screen** when they are used; add a `scroll` step first (the recorder does
-  this for you).
+  this for you). A `move` / `click` waits up to 15 s for its element to become visible, so a
+  single-page app that paints late still works; after that the step fails with
+  `element not found or not visible within 15s`.
+- **Long pauses are shortened to 2 s, except the first one.** The gap between recording start and
+  your first action is the app's load time and is written out in full — a 3D viewer can still be
+  downloading its model ten seconds in. Every later pause collapses to 2 s; stretch one back out by
+  editing its `wait` step.
 - **Rotated / portrait monitors fall back to `gdigrab`** automatically, because `ddagrab` cannot capture them.
   `--gdigrab` forces the same path anywhere else.
 - **Recording watches your keyboard.** Desktop recording installs a system-wide keyboard hook while it is

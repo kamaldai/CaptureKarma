@@ -18,9 +18,31 @@ def test_click_without_selector_uses_at():
 def test_gaps_become_capped_waits():
     steps = smooth([RawEvent(t=5.0, kind="click", at=(1, 1)), RawEvent(t=5.5, kind="click", at=(2, 2)),
                     RawEvent(t=5.6, kind="click", at=(3, 3))])
-    assert steps[0] == WaitStep(seconds=2.0)               # 5.0 s gap capped
+    # The leading 5.0 s is the app's load time, not a pause: it is written out in full (see below).
+    assert steps[0] == WaitStep(seconds=5.0)
     assert steps[3] == WaitStep(seconds=0.5)               # 0.5 s gap kept
     assert not isinstance(steps[6], WaitStep) and len(steps) == 8   # 0.1 s gap dropped (< min_wait)
+
+
+def test_the_first_wait_is_the_load_time_and_is_never_capped():
+    """Capping it made playback reach for elements a slow single-page app had not painted yet."""
+    steps = smooth([RawEvent(t=7.3, kind="click", at=(1, 1)),      # 7.3 s of loading
+                    RawEvent(t=12.3, kind="click", at=(2, 2))])    # then a 5 s human pause
+    assert steps[0] == WaitStep(seconds=7.3)
+    assert steps[3] == WaitStep(seconds=2.0)
+
+
+def test_a_short_first_gap_is_still_dropped():
+    steps = smooth([RawEvent(t=0.2, kind="click", at=(1, 1))])
+    assert not any(isinstance(s, WaitStep) for s in steps)
+
+
+def test_only_the_leading_gap_is_uncapped_not_the_first_gap_of_each_kind():
+    """`first` means "nothing emitted yet", not "first scroll" - a mid-scene pause still caps."""
+    steps = smooth([RawEvent(t=0.1, kind="click", at=(1, 1)),
+                    RawEvent(t=9.1, kind="scroll", delta=100)])
+    assert steps == [MoveStep(to=StepTarget(at=(1, 1))), ClickStep(),
+                     WaitStep(seconds=2.0), ScrollStep(by=100)]
 
 
 def test_scroll_bursts_merge_by_container():
