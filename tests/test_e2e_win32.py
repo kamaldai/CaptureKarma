@@ -32,5 +32,10 @@ def test_play_web_fixture_end_to_end(tmp_path: Path, fixture_url: str):
     assert info["tbr"] == 60
     assert info["pix_fmt"] == "yuv420p"   # 4:2:0 so every player can decode it
     assert info["width"] % 2 == 0 and info["height"] % 2 == 0
-    if info["duration"] is not None:      # only real ffprobe reports a precise container duration
-        assert abs(info["duration"] - res.duration) <= 0.5
+    if info["duration"] is not None:      # None only when the container carries no duration at all
+        # The container holds every frame ffmpeg captured, so its duration is exactly frames/fps.
+        assert abs(info["duration"] - res.frames / scene.output.fps) <= 0.1
+        # It is *longer* than the player's own clock, which stops before capture.stop() does: the
+        # gap is ffmpeg's shutdown latency (~0.7-1.0s here), not lost footage. Bound it both ways
+        # so a truncated video or a runaway capture still fails.
+        assert -0.5 <= info["duration"] - res.duration <= 2.0

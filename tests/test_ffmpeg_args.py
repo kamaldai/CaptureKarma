@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from capturekarma.capture.ffmpeg import Capabilities, build_capture_args, even_region, parse_probe_output
 from capturekarma.capture.monitors import Monitor
 from capturekarma.scene.model import Region
@@ -35,11 +37,14 @@ def test_ddagrab_libx264_downloads_frames():
     assert "-c:v libx264 -preset veryfast -crf 18" in joined and "-pix_fmt yuv420p" in joined
 
 
-def test_gdigrab_args_use_screen_coords():
-    joined = " ".join(build_capture_args(CAPS_SW, Region(2660, 100, 800, 600), MON, 60, OUT, use_ddagrab=False))
+@pytest.mark.parametrize("caps, encoder", [(CAPS_NV, "h264_nvenc"), (CAPS_SW, "libx264")])
+def test_gdigrab_args_use_screen_coords(caps, encoder):
+    joined = " ".join(build_capture_args(caps, Region(2660, 100, 800, 600), MON, 60, OUT, use_ddagrab=False))
     assert "-f gdigrab" in joined and "-offset_x 2660 -offset_y 100" in joined
     assert "-video_size 800x600" in joined and "-draw_mouse 0" in joined and "-i desktop" in joined
-    assert "hwdownload" not in joined
+    assert "hwdownload" not in joined          # gdigrab already delivers CPU frames
+    assert f"-c:v {encoder}" in joined
+    assert "-pix_fmt yuv420p" in joined        # gdigrab frames are software, so -pix_fmt applies normally
 
 
 def test_parse_probe_output():

@@ -44,8 +44,10 @@ Plan: `docs/superpowers/plans/2026-08-27-scripted-demo-recorder.md`.
 - Overlay window is `WS_EX_TRANSPARENT` (click-through) and updated with `UpdateLayeredWindow`; it must stay in the
   capture (ddagrab composites it), while `draw_mouse=0` keeps the real cursor out.
 - `smooth()` is pure — test recorder behaviour there, not through pynput/Playwright.
-- The bundled `imageio-ffmpeg` binary has `ddagrab`, `h264_nvenc` and `libx264` but **no `ffprobe`**; only the
-  Windows end-to-end test needs ffprobe, so it must skip when it is absent.
+- The bundled `imageio-ffmpeg` binary has `ddagrab`, `h264_nvenc` and `libx264` but **no `ffprobe`**. Nothing
+  requires it: `tests/_video.py::video_stream_info` uses `ffprobe` when it is on PATH (or beside the ffmpeg
+  in use) and otherwise parses `ffmpeg -i`'s stderr, so the container assertions run either way. Probe
+  videos through that helper rather than shelling out to `ffprobe` in a test.
 - Both recorders log Ctrl/Alt/Win + key as plain typing; shortcuts have to be hand-edited into `press: Control+a`
   steps. Say so in docs rather than pretending it works.
 

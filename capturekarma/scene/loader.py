@@ -234,7 +234,8 @@ def load_scene(path: str | Path) -> Scene:
 
     url = scene.target.url
     if scene.target.kind == "web" and url and not _has_url_scheme(url):
-        local = (p.parent / Path(url).expanduser()).resolve() if not Path(url).expanduser().is_absolute()             else Path(url).expanduser().resolve()
+        relative = Path(url).expanduser()
+        local = (relative if relative.is_absolute() else p.parent / relative).resolve()
         if not local.is_file():
             raise SceneError(f"target.url {url!r} is not a URL and no such file exists: {local}")
         scene = replace(scene, target=replace(scene.target, url=local.as_uri()))

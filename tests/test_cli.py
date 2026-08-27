@@ -77,3 +77,16 @@ def test_errors_go_to_stderr(tmp_path: Path):
     assert r.exit_code == 1
     assert "error:" in r.stderr
     assert "error:" not in r.stdout
+
+
+def test_typer_exit_passes_through_the_catch_all(tmp_path: Path):
+    """typer.Exit/Abort subclass RuntimeError: they are control flow, not an unexpected failure."""
+    import typer
+
+    scene = tmp_path / "s.yaml"
+    scene.write_text("version: 1\nname: x\ntarget: {kind: web, url: 'http://x'}\nsteps: []\n", encoding="utf-8")
+    with mock.patch("capturekarma.cli.StopHotkey"), mock.patch("capturekarma.cli.Player") as P:
+        P.return_value.run.side_effect = typer.Exit(3)
+        r = runner.invoke(app, ["play", str(scene)])
+    assert r.exit_code == 3
+    assert "error:" not in r.output

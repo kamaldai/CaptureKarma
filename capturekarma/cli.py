@@ -57,6 +57,8 @@ def record_web_cmd(
         path = record_web(url, out, viewport=vp, name=name)
     except _ERRORS as exc:
         _fail(exc)
+    except (typer.Exit, typer.Abort):
+        raise                 # control flow, not failure: both subclass RuntimeError
     except Exception as exc:  # noqa: BLE001 - a CLI must not spray tracebacks; -v shows the full one
         log.debug("unexpected error", exc_info=True)
         _fail(exc)
@@ -76,6 +78,8 @@ def record_desktop_cmd(
         path = record_desktop(window, out, name=name)
     except _ERRORS as exc:
         _fail(exc)
+    except (typer.Exit, typer.Abort):
+        raise                 # control flow, not failure: both subclass RuntimeError
     except Exception as exc:  # noqa: BLE001 - a CLI must not spray tracebacks; -v shows the full one
         log.debug("unexpected error", exc_info=True)
         _fail(exc)
@@ -108,6 +112,8 @@ def play(
             hotkey.stop()
     except _ERRORS as exc:
         _fail(exc)
+    except (typer.Exit, typer.Abort):
+        raise                 # control flow, not failure: both subclass RuntimeError
     except Exception as exc:  # noqa: BLE001 - a CLI must not spray tracebacks; -v shows the full one
         log.debug("unexpected error", exc_info=True)
         _fail(exc)

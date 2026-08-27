@@ -172,8 +172,10 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
 Run both commands for the full set: the default run deselects everything marked `win32` or `integration`,
 and the second command selects exactly those.
 
-The Windows-only end-to-end test checks the finished MP4 with `ffprobe`, which is *not* part of the bundled
-`imageio-ffmpeg` build — install a full ffmpeg on `PATH` if you want to run it. Nothing else needs `ffprobe`.
+The Windows-only tests check the finished MP4's resolution, frame rate and pixel format. `ffprobe` is *not*
+part of the bundled `imageio-ffmpeg` build, so those checks read the stream layout from `ffmpeg -i` instead;
+nothing needs to be installed. If a real `ffprobe` is on your `PATH` it is used in preference, which also
+enables the end-to-end test's container-duration comparison.
 
 See `CLAUDE.md` for the package layout and the conventions that keep the code honest: physical pixels
 everywhere, dumb drivers, no swallowed exceptions.

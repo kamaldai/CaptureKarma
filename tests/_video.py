@@ -17,6 +17,8 @@ from capturekarma.capture.ffmpeg import find_ffmpeg
 #: `..., yuv420p(tv, bt709, progressive), 640x360 [SAR 1:1 DAR 16:9], ...`
 _PIX_FMT_AND_SIZE = re.compile(r",\s*([a-z][a-z0-9]+)(?:\([^)]*\))?,\s*(\d+)x(\d+)\b")
 _STREAM_LINE = re.compile(r"^\s*Stream #\d+:\d+.*: Video: ", re.M)
+#: `  Duration: 00:00:09.28, start: 0.000000, bitrate: 1234 kb/s` (or `Duration: N/A`)
+_DURATION = re.compile(r"Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)")
 
 
 def _rate(text: str, unit: str) -> float | None:
@@ -25,6 +27,22 @@ def _rate(text: str, unit: str) -> float | None:
     if not m:
         return None
     return float(m.group(1)) * (1000 if m.group(2) else 1)
+
+
+def _seconds(text: str) -> float | None:
+    """`Duration: 00:00:09.28` -> 9.28 seconds; None when ffmpeg printed `N/A` or nothing."""
+    m = _DURATION.search(text)
+    if not m:
+        return None
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+
+
+def _float_or_none(value: object) -> float | None:
+    """ffprobe writes the string `N/A` for anything it could not determine."""
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def _fraction(value: str) -> float | None:
@@ -52,8 +70,9 @@ def video_stream_info(path: Path) -> dict:
     """`{pix_fmt, width, height, fps, tbr, duration, source}` for the first video stream.
 
     `tbr` is the *declared* frame rate (`r_frame_rate`); `fps` is the average one, which drops
-    below it whenever the capture missed frames — assert against `tbr`. `duration` is None unless
-    real `ffprobe` was available, because `ffmpeg -i` reports it only to centisecond precision.
+    below it whenever the capture missed frames — assert against `tbr`. `duration` comes from the
+    container either way (ffmpeg's `Duration:` line is centisecond-precise, which is plenty for a
+    half-second tolerance); it is None only when the container does not carry one (`N/A`).
     """
     probe = _find_ffprobe()
     if probe:
@@ -67,7 +86,7 @@ def video_stream_info(path: Path) -> dict:
         return {"pix_fmt": stream["pix_fmt"], "width": int(stream["width"]), "height": int(stream["height"]),
                 "fps": _fraction(stream.get("avg_frame_rate", "")) or _fraction(stream["r_frame_rate"]),
                 "tbr": _fraction(stream["r_frame_rate"]),
-                "duration": float(data["format"]["duration"]), "source": "ffprobe"}
+                "duration": _float_or_none(data.get("format", {}).get("duration")), "source": "ffprobe"}
 
     exe = find_ffmpeg()
     assert exe, "neither ffprobe nor ffmpeg is available to probe the video"
@@ -82,4 +101,5 @@ def video_stream_info(path: Path) -> dict:
     size = _PIX_FMT_AND_SIZE.search(body)
     assert size, f"could not read pix_fmt and size from: {line}"
     return {"pix_fmt": size.group(1), "width": int(size.group(2)), "height": int(size.group(3)),
-            "fps": _rate(body, "fps"), "tbr": _rate(body, "tbr"), "duration": None, "source": "ffmpeg"}
+            "fps": _rate(body, "fps"), "tbr": _rate(body, "tbr"),
+            "duration": _seconds(text), "source": "ffmpeg"}
