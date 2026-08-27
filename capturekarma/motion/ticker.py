@@ -28,7 +28,12 @@ class Ticker:
             remaining = deadline - self._clock()
             if remaining <= 0:
                 return
-            self._sleep(remaining - self._spin if remaining > self._spin else remaining)
+            if remaining <= 2 * self._spin:
+                # Final step: sleep the whole remainder and stop. Looping once more would spin on a
+                # rounding residue (a few 1e-18 s) whose sleep is too small to move the clock at all.
+                self._sleep(remaining)
+                return
+            self._sleep(remaining - self._spin)
 
     def ticks(self, duration: float) -> Iterator[tuple[int, float]]:
         """Yield (i, i/n) for i in 1..n at deadlines start + i/hz. Late ticks are not slept for."""

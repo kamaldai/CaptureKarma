@@ -52,3 +52,18 @@ def test_wait_advances_clock():
     c = FakeClock()
     Ticker(hz=10, clock=c.now, sleep=c.sleep).wait(0.3)
     assert abs(c.t - 100.3) < 1e-6
+
+
+def test_sleep_until_converges_when_a_sleep_step_cannot_advance_the_clock():
+    """A clock at t=0.0 leaves a ~1e-18 s residue after the coarse sleep; the loop must still end."""
+    c = FakeClock()
+    c.t = 0.0
+
+    def bounded_sleep(s):
+        if len(c.sleeps) >= 40:
+            raise AssertionError("sleep_until spun without reaching the deadline")
+        c.sleep(s)
+
+    out = list(Ticker(hz=10, clock=c.now, sleep=bounded_sleep).ticks(0.5))
+    assert [i for i, _ in out] == [1, 2, 3, 4, 5]
+    assert abs(c.t - 0.5) < 1e-6
