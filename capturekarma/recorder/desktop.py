@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Callable
@@ -30,6 +31,12 @@ PYNPUT_KEY_NAMES: dict[str, str] = {
 }
 STOP_KEYS = {"f9", "esc"}
 
+#: Drag sampling, shared with the web recorder (web_recorder.js) so both behave the same way.
+DRAG_SAMPLE_SECONDS = 0.04   # keep a path point at least this often while the button is down ...
+DRAG_SAMPLE_PX = 8.0         # ... or as soon as the pointer has moved this far from the last one
+DRAG_MIN_PX = 6.0            # a press whose path is shorter than this is still a click ...
+DRAG_MIN_SECONDS = 0.3       # ... unless it lasted at least this long and moved at all
+
 
 def _foreground_window() -> int:
     """Handle of the window that currently has focus (0 when it cannot be determined)."""
@@ -52,6 +59,7 @@ class DesktopRecorder:
         self._foreground = foreground
         self._t0 = clock()
         self.events: list[RawEvent] = []
+        self._press: dict | None = None   # in-progress drag candidate, None while no button is down
         self._mouse = None
         self._keys = None
 
@@ -64,12 +72,45 @@ class DesktopRecorder:
         return r.x <= x < r.right and r.y <= y < r.bottom
 
     # ---- pure handlers (unit-tested) ----
+    def _rel(self, x: int, y: int) -> tuple[int, int]:
+        return (x - self.region.x, y - self.region.y)
+
     def on_click(self, x: int, y: int, button_name: str, pressed: bool) -> None:
-        if not pressed or not self._inside(x, y):
-            return
-        r = self.region
         button = button_name if button_name in ("left", "right", "middle") else "left"
-        self.events.append(RawEvent(t=self._t(), kind="click", at=(x - r.x, y - r.y), button=button))  # type: ignore[arg-type]
+        if pressed:
+            self._press = None
+            if not self._inside(x, y):
+                # A gesture that starts outside the recorded region belongs to another window.
+                return
+            self._press = {"t": self._t(), "button": button, "path": [self._rel(x, y)], "last_t": self._t()}
+            return
+        press, self._press = self._press, None
+        if press is None:
+            return
+        path: list[tuple[int, int]] = press["path"]
+        end = self._rel(x, y)
+        if end != path[-1]:
+            path.append(end)
+        duration = self._t() - press["t"]
+        length = sum(math.dist(a, b) for a, b in zip(path, path[1:]))
+        moved = len(path) > 1
+        if moved and (length >= DRAG_MIN_PX or duration >= DRAG_MIN_SECONDS):
+            self.events.append(RawEvent(t=press["t"], kind="drag", path=tuple(path),  # type: ignore[arg-type]
+                                        button=press["button"], duration=duration))
+        else:
+            self.events.append(RawEvent(t=press["t"], kind="click", at=path[0],  # type: ignore[arg-type]
+                                        button=press["button"]))
+
+    def on_move(self, x: int, y: int) -> None:
+        """Sample the pointer while a button is down. Ignored entirely when nothing is pressed."""
+        press = self._press
+        if press is None:
+            return
+        t = self._t()
+        pt = self._rel(x, y)
+        if t - press["last_t"] >= DRAG_SAMPLE_SECONDS or math.dist(pt, press["path"][-1]) >= DRAG_SAMPLE_PX:
+            press["path"].append(pt)
+            press["last_t"] = t
 
     def on_scroll(self, x: int, y: int, dx: int, dy: int) -> None:
         if dy and self._inside(x, y):
@@ -105,6 +146,9 @@ class DesktopRecorder:
         def _click(x, y, button, pressed):
             self.on_click(int(x), int(y), button.name, pressed)
 
+        def _move(x, y):
+            self.on_move(int(x), int(y))
+
         def _scroll(x, y, dx, dy):
             self.on_scroll(int(x), int(y), int(dx), int(dy))
 
@@ -116,7 +160,7 @@ class DesktopRecorder:
                 char = chr(ord(char) + 96)
             self.on_press(name, char if (char is not None and char.isprintable()) else None)
 
-        self._mouse = mouse.Listener(on_click=_click, on_scroll=_scroll)
+        self._mouse = mouse.Listener(on_click=_click, on_move=_move, on_scroll=_scroll)
         self._keys = keyboard.Listener(on_press=_press)
         for lst in (self._mouse, self._keys):
             lst.daemon = True
@@ -124,6 +168,7 @@ class DesktopRecorder:
         log.info("recording desktop region %s — press F9 to stop", self.region)
 
     def stop(self) -> list[RawEvent]:
+        self._press = None      # a gesture still in progress when recording ends is discarded
         for lst in (self._mouse, self._keys):
             if lst is not None:
                 lst.stop()

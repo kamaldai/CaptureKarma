@@ -176,6 +176,14 @@ excluded with `draw_mouse=0` — the one you see is the rendered overlay).
   active; keystrokes are only recorded while the target window is in the foreground, but the hook itself sees
   everything until you press F9. Web recording skips `input[type=password]` fields entirely. Scene files are
   plain-text YAML with every keystroke you typed in them — read one before you share it.
+- **A press is a drag only once it travels.** Both recorders call a press a `drag` when the pointer
+  moved at least 6 px, or when the press lasted 300 ms and moved at all; anything shorter stays a
+  `click`. A very slow, very small orbit of a 3D viewer can therefore land on the wrong side of that
+  line — check the recorded step and widen the path by hand if it did.
+- **`wheel` vs `scroll` is decided by whether the page moved.** The web recorder writes a `wheel`
+  step when a burst of wheel events produced no `scroll` event anywhere (a canvas that zooms and
+  calls `preventDefault`), and a `scroll` step otherwise. Desktop recording cannot tell the two
+  apart at all and always writes a `scroll`; hand-edit it to `wheel` for a desktop 3D viewer.
 - **An inner scroll container with no unique selector is recorded as a page scroll.** If the recorder cannot
   name the element you scrolled, the step is written as a page scroll; add an `id` to the container or
   hand-edit the step's `in:` selector.

@@ -49,10 +49,90 @@
   // losing an event then is expected, and throwing here would break the page under the user.
   const send = payload => { try { window.__ck_event(JSON.stringify(payload)); } catch (e) {} };
 
+  // ---- clicks and drags -------------------------------------------------------------------
+  // A press that travels (orbiting a 3D viewer, moving a slider) is a drag, not a click. Both
+  // arrive as pointerdown/up, and the browser fires a synthetic `click` after the up either way,
+  // so a recognised drag sets suppressClick to keep that click out of the scene.
+  // Thresholds are mirrored in recorder/desktop.py; keep the two in step.
+  const DRAG_SAMPLE_MS = 40, DRAG_SAMPLE_PX = 8, DRAG_MIN_PX = 6, DRAG_MIN_MS = 300;
+  let drag = null;
+  let suppressClick = false;
+
+  const BUTTONS = ["left", "middle", "right"];
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+  document.addEventListener("pointerdown", e => {
+    drag = null;
+    if (e.button < 0 || e.button > 2) return;
+    const p = [Math.round(e.clientX), Math.round(e.clientY)];
+    drag = { path: [p], button: BUTTONS[e.button], t0: e.timeStamp, lastT: e.timeStamp, id: e.pointerId };
+  }, true);
+
+  document.addEventListener("pointermove", e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const p = [Math.round(e.clientX), Math.round(e.clientY)];
+    if (e.timeStamp - drag.lastT >= DRAG_SAMPLE_MS || dist(p, drag.path[drag.path.length - 1]) >= DRAG_SAMPLE_PX) {
+      drag.path.push(p);
+      drag.lastT = e.timeStamp;
+    }
+  }, true);
+
+  document.addEventListener("pointerup", e => {
+    const d = drag;
+    drag = null;
+    if (!d || e.pointerId !== d.id) return;
+    const p = [Math.round(e.clientX), Math.round(e.clientY)];
+    const last = d.path[d.path.length - 1];
+    if (p[0] !== last[0] || p[1] !== last[1]) d.path.push(p);
+    let length = 0;
+    for (let i = 1; i < d.path.length; i++) length += dist(d.path[i - 1], d.path[i]);
+    const duration = e.timeStamp - d.t0;
+    const moved = d.path.length > 1;
+    if (moved && (length >= DRAG_MIN_PX || duration >= DRAG_MIN_MS)) {
+      suppressClick = true;   // cleared by the click handler below, whichever way it goes
+      send({ kind: "drag", path: d.path, button: d.button, duration_ms: Math.round(duration) });
+    }
+  }, true);
+
+  // Losing the pointer mid-gesture (a drag off the window, a context menu, alt-tab) means we never
+  // see the release: throw the half-recorded path away rather than guess where it ended.
+  document.addEventListener("pointercancel", () => { drag = null; }, true);
+  window.addEventListener("blur", () => { drag = null; }, true);
+
   document.addEventListener("click", e => {
-    const button = ["left", "middle", "right"][e.button] || "left";
+    const wasDrag = suppressClick;
+    suppressClick = false;
+    if (wasDrag) return;
+    const button = BUTTONS[e.button] || "left";
     send({ kind: "click", selector: uniqueSelector(e.target), at: [Math.round(e.clientX), Math.round(e.clientY)], button });
   }, true);
+
+  // ---- canvas wheel -----------------------------------------------------------------------
+  // A wheel over a canvas that zooms (and calls preventDefault) produces no `scroll` event at
+  // all, so the scroll listener below never sees it. Accumulate a burst; if a scroll did fire
+  // while it was open the page really did move and the scroll path already reported it.
+  const WHEEL_BURST_MS = 150;
+  const LINE_PX = 16;
+  let wheelBurst = null;
+
+  function flushWheel() {
+    const b = wheelBurst;
+    wheelBurst = null;
+    if (!b) return;
+    if (b.scrolled) return;                       // the page moved: `scroll` already recorded it
+    if (Math.abs(b.total) < 1) return;
+    send({ kind: "wheel", delta: Math.round(b.total), at: b.at });
+  }
+
+  document.addEventListener("wheel", e => {
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) dy *= LINE_PX;                       // DOM_DELTA_LINE
+    else if (e.deltaMode === 2) dy *= window.innerHeight;       // DOM_DELTA_PAGE
+    if (!wheelBurst) wheelBurst = { total: 0, at: [Math.round(e.clientX), Math.round(e.clientY)], scrolled: false };
+    wheelBurst.total += dy;
+    clearTimeout(wheelBurst.timer);
+    wheelBurst.timer = setTimeout(flushWheel, WHEEL_BURST_MS);
+  }, { capture: true, passive: true });
 
   const lastTop = new WeakMap();
   const pending = new Map();
@@ -61,6 +141,7 @@
       ? null : e.target;
   }
   document.addEventListener("scroll", e => {
+    if (wheelBurst) wheelBurst.scrolled = true;
     const el = scrollTargetOf(e);
     const scroller = el || document.scrollingElement || document.documentElement;
     const top = scroller.scrollTop;

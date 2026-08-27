@@ -117,3 +117,109 @@ def test_recorded_scene_survives_a_dump_load_round_trip(rec, tmp_path):
     path = tmp_path / "round-trip.yaml"
     dump_scene(scene, path)
     assert load_scene(path) == scene
+
+
+def _stage_center(rec):
+    box = rec.page.locator("#stage").bounding_box()
+    return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+
+def test_a_drag_on_the_canvas_is_recorded_as_a_drag_not_a_click(rec):
+    cx, cy = _stage_center(rec)
+    rec.page.mouse.move(cx, cy)
+    rec.page.mouse.down()
+    for dx in (30, 60, 90, 120):
+        rec.page.mouse.move(cx + dx, cy + dx / 3)
+        rec.page.wait_for_timeout(50)
+    rec.page.mouse.up()
+    rec.page.wait_for_timeout(300)
+    kinds = _kinds(rec.events)
+    assert kinds.count("drag") == 1
+    assert "click" not in kinds            # the synthetic click after the drag is suppressed
+    drag = next(e for e in rec.events if e.kind == "drag")
+    assert len(drag.path) >= 3
+    assert drag.path[0] == (round(cx), round(cy))
+    assert drag.path[-1] == (round(cx) + 120, round(cy) + 40)
+    assert drag.button == "left" and drag.duration > 0
+
+
+def test_a_press_and_release_in_place_is_still_a_click(rec):
+    rec.page.click("#btn-primary")
+    rec.page.wait_for_timeout(300)
+    kinds = _kinds(rec.events)
+    assert kinds.count("click") == 1 and "drag" not in kinds
+
+
+def test_a_wheel_over_a_zooming_canvas_is_recorded_as_a_wheel(rec):
+    cx, cy = _stage_center(rec)
+    rec.page.mouse.move(cx, cy)
+    rec.page.mouse.wheel(0, -120)
+    rec.page.mouse.wheel(0, -120)
+    rec.page.wait_for_timeout(400)
+    wheels = [e for e in rec.events if e.kind == "wheel"]
+    assert len(wheels) == 1 and wheels[0].delta == -240
+    assert wheels[0].at == (round(cx), round(cy))
+    assert not [e for e in rec.events if e.kind == "scroll"]     # the page never moved
+
+
+def test_a_wheel_that_scrolls_the_page_is_not_recorded_as_a_wheel(rec):
+    rec.page.mouse.move(900, 300)     # page body, right of everything
+    rec.page.mouse.wheel(0, 400)
+    rec.page.wait_for_timeout(400)
+    kinds = _kinds(rec.events)
+    assert "wheel" not in kinds
+    assert sum(e.delta for e in rec.events if e.kind == "scroll") == 400
+
+
+def test_canvas_drag_and_wheel_replay_through_the_driver(fixture_url):
+    """End-to-end: record a drag + a wheel on the canvas, then play the scene back into it.
+
+    The recorder is stopped before the driver starts: Playwright's sync API refuses a second
+    instance in the same thread while the first is still running.
+    """
+    from capturekarma.drivers.web import WebDriver
+    from capturekarma.motion import get_easing, polyline_path
+    from capturekarma.scene.model import DragStep, MoveStep, WheelStep
+
+    rec = WebRecorder(fixture_url, viewport=(1000, 600), headless=True)
+    rec.start()
+    try:
+        cx, cy = _stage_center(rec)
+        rec.page.mouse.move(cx, cy)
+        rec.page.mouse.down()
+        for dx in (40, 80, 120):
+            rec.page.mouse.move(cx + dx, cy + 20)
+            rec.page.wait_for_timeout(60)
+        rec.page.mouse.up()
+        rec.page.wait_for_timeout(250)
+        rec.page.mouse.wheel(0, -240)
+        rec.page.wait_for_timeout(400)
+        recorded = rec.page.evaluate("[window.__stage.dx, window.__stage.dy, window.__stage.wheel]")
+        scene = rec.to_scene("canvas")
+    finally:
+        rec.stop()
+    assert recorded == [120, 20, -240]
+
+    kinds = [type(s) for s in scene.steps]
+    assert MoveStep in kinds and DragStep in kinds and WheelStep in kinds
+    drag = next(s for s in scene.steps if isinstance(s, DragStep))
+    wheel = next(s for s in scene.steps if isinstance(s, WheelStep))
+    assert wheel.by == -240
+
+    d = WebDriver(headless=True)
+    try:
+        d.setup(scene)
+        # Replayed at driver level: the player's own motion is covered by tests/test_player.py.
+        pts = polyline_path([d.resolve(StepTarget(at=p)) for p in drag.path], 12,
+                            get_easing("ease_in_out_cubic"))
+        d.pointer_to(*pts[0])
+        d.mouse_down(drag.button)
+        for pt in pts:
+            d.pointer_to(*pt)
+        d.mouse_up(drag.button)
+        d.pointer_to(*d.resolve(wheel.at))
+        d.smooth_wheel(wheel, duration=0.2, easing=get_easing("linear"))
+        played = d.page.evaluate("[window.__stage.dx, window.__stage.dy, window.__stage.wheel]")
+    finally:
+        d.teardown()
+    assert played == recorded

@@ -42,6 +42,13 @@ class WebRecorder:
             at = tuple(d["at"]) if d.get("at") else None
             self.events.append(RawEvent(t=t, kind="click", selector=d.get("selector"), at=at,  # type: ignore[arg-type]
                                         button=d.get("button", "left")))
+        elif kind == "drag":
+            path = tuple((int(x), int(y)) for x, y in d["path"])
+            self.events.append(RawEvent(t=t, kind="drag", path=path, button=d.get("button", "left"),  # type: ignore[arg-type]
+                                        at=path[0], duration=float(d["duration_ms"]) / 1000.0))
+        elif kind == "wheel":
+            at = tuple(d["at"]) if d.get("at") else None
+            self.events.append(RawEvent(t=t, kind="wheel", delta=int(d["delta"]), at=at))  # type: ignore[arg-type]
         elif kind == "scroll":
             self.events.append(RawEvent(t=t, kind="scroll", container=d.get("container"), delta=int(d["delta"])))
         elif kind == "key":

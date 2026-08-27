@@ -3,7 +3,7 @@ import threading
 from capturekarma.recorder.desktop import DesktopRecorder
 from capturekarma.scene import dump_scene, load_scene
 from capturekarma.scene.model import (
-    ClickStep, MoveStep, PressStep, Region, ScrollStep, StepTarget, TypeStep, WaitStep,
+    ClickStep, DragStep, MoveStep, PressStep, Region, ScrollStep, StepTarget, TypeStep, WaitStep,
 )
 
 
@@ -21,7 +21,7 @@ def _rec():
     return r, c
 
 
-def test_click_is_region_relative_and_press_only():
+def test_click_is_recorded_once_on_release_at_the_press_point():
     r, c = _rec()
     c.t = 1.0
     r.on_click(150, 260, "left", True)
@@ -55,7 +55,7 @@ def test_keys():
 
 def test_to_scene():
     r, c = _rec()
-    c.t = 0.1; r.on_click(150, 260, "left", True)
+    c.t = 0.1; r.on_click(150, 260, "left", True); r.on_click(150, 260, "left", False)
     c.t = 0.5; r.on_scroll(300, 300, 0, -3)
     c.t = 0.9; r.on_press(None, "h"); c.t = 1.0; r.on_press(None, "i")
     s = r.to_scene("d", window="Notepad")
@@ -139,6 +139,7 @@ def test_keys_always_recorded_without_a_target_window():
 def test_clicks_and_scrolls_are_not_gated_on_the_foreground_window():
     r = DesktopRecorder(Region(0, 0, 800, 600), clock=Clock(), target_hwnd=1, foreground=lambda: 2)
     r.on_click(10, 10, "left", True)
+    r.on_click(10, 10, "left", False)
     r.on_scroll(10, 10, 0, -1)
     assert [e.kind for e in r.events] == ["click", "scroll"]
 
@@ -221,7 +222,7 @@ def test_record_desktop_passes_the_target_window_to_the_recorder(tmp_path, monke
 
 def test_recorder_scene_survives_a_dump_load_round_trip(tmp_path):
     r, c = _rec()
-    c.t = 0.1; r.on_click(150, 260, "left", True)
+    c.t = 0.1; r.on_click(150, 260, "left", True); r.on_click(150, 260, "left", False)
     c.t = 0.5; r.on_scroll(300, 300, 0, -3)
     c.t = 0.9; r.on_press(None, "h")
     c.t = 1.0; r.on_press(None, "i")
@@ -234,8 +235,84 @@ def test_recorder_scene_survives_a_dump_load_round_trip(tmp_path):
 
 def test_recorder_scene_with_a_region_target_survives_a_round_trip(tmp_path):
     r, c = _rec()
-    c.t = 0.2; r.on_click(150, 260, "left", True)
+    c.t = 0.2; r.on_click(150, 260, "left", True); r.on_click(150, 260, "left", False)
     scene = r.to_scene("region-scene")          # no window -> region target
     path = tmp_path / "region-scene.yaml"
+    dump_scene(scene, path)
+    assert load_scene(path) == scene
+
+
+def test_press_move_release_becomes_a_drag_not_a_click():
+    r, c = _rec()
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    c.t = 1.1; r.on_move(200, 300)
+    c.t = 1.2; r.on_move(260, 340)
+    c.t = 1.4; r.on_click(260, 340, "left", False)
+    assert [e.kind for e in r.events] == ["drag"]
+    e = r.events[0]
+    assert e.path == ((50, 60), (100, 100), (160, 140))       # region-relative
+    assert e.button == "left" and round(e.duration, 3) == 0.4
+
+
+def test_a_press_that_barely_moves_stays_a_click():
+    r, c = _rec()
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    c.t = 1.05; r.on_move(152, 261)
+    c.t = 1.1; r.on_click(152, 261, "left", False)
+    assert [e.kind for e in r.events] == ["click"]
+    assert r.events[0].at == (50, 60)                         # the *press* point, as before
+
+
+def test_a_long_slow_press_with_any_movement_is_a_drag():
+    r, c = _rec()
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    c.t = 1.5; r.on_move(153, 262)
+    c.t = 1.6; r.on_click(153, 262, "left", False)
+    assert [e.kind for e in r.events] == ["drag"]
+
+
+def test_moves_are_sampled_by_time_and_distance():
+    r, c = _rec()
+    c.t = 1.0; r.on_click(150, 260, "left", True)
+    for k in range(1, 4):                  # three moves 1 px apart, 2 ms apart: too small, too soon
+        c.t = 1.0 + k * 0.002
+        r.on_move(150 + k, 260)
+    c.t = 1.01; r.on_move(200, 260)        # 50 px from the last kept point: kept
+    c.t = 1.5; r.on_click(200, 260, "left", False)
+    assert r.events[0].path == ((50, 60), (100, 60))
+
+
+def test_moves_outside_a_press_are_ignored():
+    r, c = _rec()
+    r.on_move(300, 300)
+    r.on_move(400, 400)
+    assert r.events == []
+
+
+def test_a_press_that_starts_outside_the_region_is_ignored_entirely():
+    r, c = _rec()
+    r.on_click(5, 5, "left", True)
+    r.on_move(300, 300)
+    r.on_click(300, 300, "left", False)
+    assert r.events == []
+
+
+def test_drag_to_scene_produces_a_move_then_a_drag():
+    r, c = _rec()
+    c.t = 0.1; r.on_click(150, 260, "left", True)
+    c.t = 0.5; r.on_move(400, 400)
+    c.t = 0.9; r.on_click(400, 400, "left", False)
+    s = r.to_scene("d", window="Notepad")
+    assert s.steps == (MoveStep(to=StepTarget(at=(50, 60))),
+                       DragStep(path=((50, 60), (300, 200)), duration=0.8))
+
+
+def test_drag_scene_survives_a_round_trip(tmp_path):
+    r, c = _rec()
+    c.t = 0.1; r.on_click(150, 260, "left", True)
+    c.t = 0.5; r.on_move(400, 400)
+    c.t = 0.9; r.on_click(400, 400, "left", False)
+    scene = r.to_scene("drag-scene", window="Notepad")
+    path = tmp_path / "drag-scene.yaml"
     dump_scene(scene, path)
     assert load_scene(path) == scene
