@@ -18,6 +18,9 @@ from capturekarma.scene import load_scene
 
 from .worker import Worker
 
+#: `style_combo` entry meaning "do not override": the scene's own `cursor.style` is used.
+SCENE_DEFAULT_STYLE = "(scene default)"
+
 
 class MainWindow(QMainWindow):
     def __init__(self, scenes_dir: Path):
@@ -82,7 +85,7 @@ class MainWindow(QMainWindow):
         self.show_cursor_cb = QCheckBox("Show cursor")
         self.show_cursor_cb.setChecked(True)
         self.style_combo = QComboBox()
-        self.style_combo.addItems(available_styles())
+        self.style_combo.addItems([SCENE_DEFAULT_STYLE, *available_styles()])
         self.open_btn = QPushButton("Open output folder")
         self.open_btn.clicked.connect(self._open_output)
         opts_l.addWidget(self.show_cursor_cb)
@@ -125,6 +128,11 @@ class MainWindow(QMainWindow):
     def append_log(self, text: str) -> None:
         self.log_view.appendPlainText(text)
 
+    def _selected_style(self) -> str | None:
+        """The chosen cursor style, or None to leave the scene's own `cursor.style` alone."""
+        style = self.style_combo.currentText()
+        return None if style == SCENE_DEFAULT_STYLE else style
+
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
@@ -166,7 +174,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         visible = self.show_cursor_cb.isChecked()
-        style = self.style_combo.currentText()
+        style = self._selected_style()
         from capturekarma.recorder.hotkey import StopHotkey
 
         def job():
@@ -210,6 +218,9 @@ class MainWindow(QMainWindow):
     def _open_output(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         if IS_WINDOWS:
-            os.startfile(self.output_dir)  # type: ignore[attr-defined]
+            try:
+                os.startfile(self.output_dir)  # type: ignore[attr-defined]
+            except OSError as exc:
+                self.append_log(f"ERROR: could not open {self.output_dir}: {exc}")
         else:
             self.append_log(str(self.output_dir))
