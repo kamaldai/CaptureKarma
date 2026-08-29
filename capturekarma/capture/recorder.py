@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 
+from capturekarma._win import is_remote_session
 from capturekarma.scene.model import Region
 
 from .ffmpeg import Capabilities, build_capture_args
@@ -113,6 +114,11 @@ def start_capture(caps: Capabilities, region: Region, monitor: Monitor, fps: int
         # ddagrab hands back the unrotated panel surface, so offsets derived from virtual-screen
         # coordinates would silently capture the wrong area. gdigrab is in virtual-screen coordinates.
         log.warning("monitor %d is rotated; ddagrab does not honour rotation, using gdigrab", monitor.index)
+        use_ddagrab = False
+    if use_ddagrab and is_remote_session():
+        # The Desktop Duplication API refuses to duplicate outputs of a Remote Desktop session
+        # ("Failed duplicating output"); trying it only costs a failed start.
+        log.warning("Remote Desktop session: Desktop Duplication is unavailable, using gdigrab (CPU capture)")
         use_ddagrab = False
     if use_ddagrab:
         cap = ScreenCapture(caps, region, monitor, fps, out_path, use_ddagrab=True)

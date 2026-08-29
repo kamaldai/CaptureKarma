@@ -35,6 +35,20 @@ def test_unrotated_monitor_prefers_ddagrab(tmp_path: Path):
     assert _ddagrab_flags(sc) == [True]
 
 
+def test_remote_desktop_session_goes_straight_to_gdigrab(tmp_path: Path):
+    with (patch("capturekarma.capture.recorder.ScreenCapture") as sc,
+          patch("capturekarma.capture.recorder.is_remote_session", return_value=True)):
+        start_capture(CAPS, REGION, LANDSCAPE, 60, tmp_path / "out.mp4")
+    assert _ddagrab_flags(sc) == [False]
+
+
+def test_local_session_still_prefers_ddagrab(tmp_path: Path):
+    with (patch("capturekarma.capture.recorder.ScreenCapture") as sc,
+          patch("capturekarma.capture.recorder.is_remote_session", return_value=False)):
+        start_capture(CAPS, REGION, LANDSCAPE, 60, tmp_path / "out.mp4")
+    assert _ddagrab_flags(sc) == [True]
+
+
 def test_ddagrab_failure_falls_back_to_gdigrab(tmp_path: Path):
     with patch("capturekarma.capture.recorder.ScreenCapture") as sc:
         sc.return_value.wait_ready.side_effect = [CaptureError("no frames"), None]

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from capturekarma._frozen import CHROMIUM_PROBE_FLAG, bundle_dir, is_frozen
-from capturekarma._win import IS_WINDOWS, set_dpi_awareness
+from capturekarma._win import IS_WINDOWS, is_remote_session, set_dpi_awareness
 
 
 @dataclass(frozen=True)
@@ -84,8 +84,12 @@ def run_doctor() -> list[Check]:
     else:
         caps = probe(exe)
         checks.append(Check("ffmpeg", True, f"{caps.version} at {exe}"))
-        checks.append(Check("ddagrab", caps.ddagrab,
-                            "GPU desktop duplication capture available" if caps.ddagrab else "missing",
+        if caps.ddagrab and is_remote_session():
+            ddagrab_detail = ("available, but this is a Remote Desktop session where Windows refuses desktop "
+                              "duplication; gdigrab (CPU capture) will be used")
+        else:
+            ddagrab_detail = "GPU desktop duplication capture available" if caps.ddagrab else "missing"
+        checks.append(Check("ddagrab", caps.ddagrab, ddagrab_detail,
                             None if caps.ddagrab else
                             "install a full ffmpeg build (Gyan.FFmpeg); gdigrab fallback will be used"))
         checks.append(Check("h264_nvenc", caps.nvenc,

@@ -41,6 +41,16 @@ def set_dpi_awareness() -> bool:
     return False
 
 
+def is_remote_session() -> bool:
+    """True inside a Remote Desktop session (SM_REMOTESESSION), where Desktop Duplication is unavailable."""
+    if not IS_WINDOWS:
+        return False
+    import ctypes
+
+    SM_REMOTESESSION = 0x1000
+    return bool(ctypes.windll.user32.GetSystemMetrics(SM_REMOTESESSION))
+
+
 @contextlib.contextmanager
 def high_res_timer():
     """Request 1 ms scheduler resolution while the block runs (no-op off Windows)."""

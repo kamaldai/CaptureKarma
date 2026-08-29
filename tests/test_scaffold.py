@@ -24,3 +24,7 @@ def test_scene_package_exports_names_not_submodules():
         assert name in scene_pkg.__all__
     for name in scene_pkg.__all__:
         assert hasattr(scene_pkg, name), name
+
+
+def test_is_remote_session_returns_bool():
+    assert isinstance(_win.is_remote_session(), bool)

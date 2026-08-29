@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from capturekarma._win import set_dpi_awareness
+from capturekarma._win import is_remote_session, set_dpi_awareness
 from capturekarma.capture.ffmpeg import find_ffmpeg, probe
 from capturekarma.capture.monitors import list_monitors
 from capturekarma.capture.recorder import start_capture
@@ -26,7 +26,7 @@ def test_record_one_second(tmp_path: Path):
     result = cap.stop()
     assert result == out and out.exists() and out.stat().st_size > 0
     assert cap.frames >= 30
-    if caps.ddagrab and not mon.rotated:
+    if caps.ddagrab and not mon.rotated and not is_remote_session():
         # A silent gdigrab fallback still produces a valid MP4, so without this an ffmpeg-args
         # regression on the ddagrab branch would pass unnoticed (it did once - see the pix_fmt fix).
         assert cap.use_ddagrab is True, "ddagrab fell back to gdigrab; the GPU capture path is broken"
