@@ -15,6 +15,13 @@ PORTRAIT = Monitor(1, Region(0, 0, 1080, 1920), False, rotated=True)
 REGION = Region(10, 10, 640, 360)
 
 
+@pytest.fixture(autouse=True)
+def _local_session():
+    """These are pure tests: pin the session type so they don't depend on whether pytest runs over RDP."""
+    with patch("capturekarma.capture.recorder.is_remote_session", return_value=False):
+        yield
+
+
 def _ddagrab_flags(screen_capture) -> list[bool]:
     """use_ddagrab passed to each ScreenCapture construction, in order."""
     return [c.kwargs["use_ddagrab"] for c in screen_capture.call_args_list]
